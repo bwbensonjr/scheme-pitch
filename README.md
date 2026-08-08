@@ -18,12 +18,6 @@ runs on.
   input; pitch refuses to write a file whose meaning it cannot prove unchanged.
 - **Idempotence.** `pitch(pitch(x)) == pitch(x)`, enforced by the test suite.
 - **Near-zero configuration.** Width and dialect. That is the whole surface.
-
-## Non-goals
-
-These are prohibitions, not deprioritized features. Each is a failure mode
-observed in existing Scheme and Lisp formatters.
-
 - **Pitch never reorders code.** Not top-level definitions, not `case` clauses,
   not quoted lists. Reordering is not formatting.
 - **Pitch never rewrites comment contents**, only their placement.
