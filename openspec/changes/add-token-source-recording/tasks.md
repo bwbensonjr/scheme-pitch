@@ -115,10 +115,13 @@ Suites after group 5: **196 passed** baseline, **104 passed** recording.
 
 ## 6. Documentation and provenance
 
-- [ ] 6.1 Update the change list in the `src/pitch/reader.sls` header to describe
+- [x] 6.1 Update the change list in the `src/pitch/reader.sls` header to describe
       the recording change, replacing the "not implemented yet" placeholder
-- [ ] 6.2 Review `make vendor-diff` output end to end and confirm it reads as a
-      reviewable changeset rather than an incidental rewrite
-- [ ] 6.3 Note in `vendor/laesare/VENDOR.md` that the diff is now the candidate
+- [x] 6.2 Review `make vendor-diff` output end to end and confirm it reads as a
+      reviewable changeset rather than an incidental rewrite: 20 removed lines,
+      12 of them the mechanical `get-token` to `get-token*` rename. The rest are
+      the library name, the export list, `get-char`'s linefeed test, and the
+      reader record's fields, UID and protocol.
+- [x] 6.3 Note in `vendor/laesare/VENDOR.md` that the diff is now the candidate
       upstream patch
-- [ ] 6.4 Confirm `make vendor-verify` still passes
+- [x] 6.4 Confirm `make vendor-verify` still passes

@@ -13,9 +13,36 @@
 ;; `make vendor-diff` to see the exact set of changes made here.
 ;;
 ;; Changes from upstream:
-;;   - Renamed the library from (laesare reader) to (pitch reader) so it
-;;     does not collide with an installed copy of laesare.
-;;   (Source-location recording is not implemented yet.)
+;;
+;;   - Renamed the library from (laesare reader) to (pitch reader) so it does
+;;     not collide with an installed copy of laesare.
+;;
+;;   - The reader records an absolute character offset and, while a get-token
+;;     call is in progress, the text of the token being read. Both are updated
+;;     in get-char, the single point where input is consumed.
+;;
+;;   - Upstream's get-token is now get-token*, unchanged apart from its name
+;;     and its internal recursive calls. The exported get-token is a wrapper
+;;     that brackets one outermost call and returns a token record of kind,
+;;     text, start, end and value. This is a BREAKING change for direct
+;;     callers of get-token; get-token* is exported for the old behavior.
+;;
+;;   - get-lexeme calls get-token*, so read-annotated, read-datum and
+;;     detect-scheme-file-type behave exactly as upstream and allocate no
+;;     recording state.
+;;
+;;   - get-char counts every line ending the RnRS grammar recognizes, not only
+;;     linefeed. Upstream left line and column desynced on carriage-return,
+;;     next-line, line-separator and paragraph-separator endings, which
+;;     get-comment already handled.
+;;
+;;   - The reader record has a new nongenerative UID, since its fields changed.
+;;
+;; Recorded spans are not always minimal lexemes. On the error-recovery and
+;; directive paths get-token* consumes a prefix before the token it ultimately
+;; returns, and that prefix is attributed to it rather than dropped. Nothing is
+;; ever lost or duplicated, so concatenating the text of all tokens reproduces
+;; the input byte for byte, malformed input in tolerant mode included.
 
 ;; Permission is hereby granted, free of charge, to any person obtaining a
 ;; copy of this software and associated documentation files (the "Software"),
