@@ -1,34 +1,119 @@
-# Pitch 
+# Pitch
 
-A reflowing, opinionated code formatter for the Scheme programming
-language, modelled after [`black`](https://github.com/psf/black) for
-Python. Supports R6RS and R7RS Scheme.
+A reflowing, opinionated code formatter for the Scheme programming language,
+modelled after [`black`](https://github.com/psf/black) for Python.
 
-## Principles 
+Pitch formats R6RS and R7RS source. It is itself written in R6RS Scheme and
+developed against [Chez Scheme](https://github.com/cisco/chezscheme); the
+dialect of the code being formatted is independent of the implementation pitch
+runs on.
 
-- Discards prior formatting 
-- Line-length driven line breaking
-- AST equivalence check
-- Idempotence - `pitch(pitch(x) == pitch(x)`
-- Near-zero configuration 
+## Principles
 
-## Architecture 
+- **Reflows from scratch.** Prior line breaks and indentation are discarded and
+  layout is re-derived from the line width, with a short list of declared
+  exceptions (see [Preserved formatting](#preserved-formatting)).
+- **Line-length driven line breaking.** Default width 88.
+- **Safety checks on every run.** Output is re-read and compared against the
+  input; pitch refuses to write a file whose meaning it cannot prove unchanged.
+- **Idempotence.** `pitch(pitch(x)) == pitch(x)`, enforced by the test suite.
+- **Near-zero configuration.** Width and dialect. That is the whole surface.
 
-- Lossless lexer → CST → cost-based optimal layout via a `pretty-expressive`-style engine → per-form style table (similar to [Racket `fmt`](https://docs.racket-lang.org/fmt/index.html)).
-- Uses [SRFI 272](https://github.com/scheme-requests-for-implementation/srfi-272)'s style grammar as configuration format.
-- Uses Scheme `read` and `equal?` to verify AST equivalence.
+## Non-goals
 
-## References 
+These are prohibitions, not deprioritized features. Each is a failure mode
+observed in existing Scheme and Lisp formatters.
 
-- [`laesare`](https://gitlab.com/weinholt/laesare) - An R6RS/R7RS lexer and reader which we modify for the Lossless lexer → CST step.
-- [`bwbensonjr/laesare`](https://github.com/bwbensonjr/laesare) - Our fork of `laesare` that captures the exact source substring.
-- [Chez Scheme](https://github.com/cisco/chezscheme) - Our preferred R6RS Scheme implementation.
+- **Pitch never reorders code.** Not top-level definitions, not `case` clauses,
+  not quoted lists. Reordering is not formatting.
+- **Pitch never rewrites comment contents**, only their placement.
+- **Pitch never loses a comment, a `#;` form, or a `#| |#` block.** Comment loss
+  is the defining flaw of every datum-based Scheme pretty-printer.
+- **Pitch does not grow configuration.** Every additional knob moves it toward
+  being a style engine rather than a canonical formatter.
+
+## Architecture
+
+```
+source text
+  → lossless lexer          (derived from laesare; tokens carry exact source text)
+  → CST                     (trivia are first-class; concatenation reproduces input)
+  → cost-based optimal layout   (pretty-expressive / Πe style engine)
+  → per-form style table    (SRFI 272 style grammar as the on-disk format)
+  → formatted text
+```
+
+The CST and the layout engine are dialect-agnostic. A dialect is a bundle of a
+reader profile, a style table, and a normalization policy, and nothing below
+that seam branches on it.
+
+Two references shape the design. [Racket's `fmt`](https://docs.racket-lang.org/fmt/index.html)
+proves the whole pipeline works on a Lisp; its 183-form style table collapses to
+about six distinct shapes, which is the vocabulary a style grammar needs.
+[*A Pretty Expressive Printer*](https://arxiv.org/abs/2310.01530) (OOPSLA 2023)
+supplies a layout core that provably minimizes a user-supplied cost objective —
+which is where pitch's aesthetic preferences get encoded, rather than in ad-hoc
+line-breaking heuristics.
+
+## Safety checks
+
+Scheme's `read` discards comments, bracket shape, quote abbreviations, numeric
+lexemes, and string escape spelling, so datum comparison alone is a weak check.
+Pitch layers four, and **every one re-reads the output text** — comparing an
+in-memory tree against itself is vacuous and would pass regardless of what the
+printer did.
+
+| Layer | Check |
+|---|---|
+| 0 | **Round-trip.** With formatting disabled, concatenating the CST reproduces the input byte for byte. |
+| 1 | **Token equivalence.** Re-lex the output; compare token sequences with whitespace filtered out and comments retained in order. Primary check. |
+| 2 | **Datum equivalence.** Via pitch's own `cst->datum`. An independent code path from layer 1. |
+| 3 | **Idempotence.** `pitch(pitch(x)) == pitch(x)`. |
+
+Pitch does not use any host implementation's `read` at runtime — that would make
+the guarantee vary by platform. Host readers are used as *test* oracles only:
+CI differential-tests `cst->datum` against Chez, Chibi, and Gauche.
+
+### Declared normalizations
+
+Black documents three permitted divergences between input and output. **Pitch's
+list is empty.** Bracket shape, radix notation, character names, `#t`/`#true`,
+string escape spelling, and identifier spelling are all preserved exactly, so
+layer 1 is plain equality with no exemptions. Anything added here must be
+argued onto this list and documented.
+
+### Preserved formatting
+
+Layout is otherwise re-derived, but blank-line counts survive: at most one
+consecutive blank line inside a form, at most two between top-level forms.
+Whether pitch honors any explicit "keep this broken" signal analogous to black's
+magic trailing comma is an open decision — see [`docs/DESIGN.md`](docs/DESIGN.md).
+
+## Dialects
+
+Pitch accepts R6RS and R7RS input. The reader is a permissive union — it never
+rejects input valid in either dialect — and the dialect selects only the style
+table, the bracket convention, and any dialect-specific output choices.
+
+Selection is by explicit `--dialect`, defaulting to content sniffing (`import`
+→ R6RS program, `library` → R6RS library, `define-library` → R7RS library), with
+a magic comment override. Pitch never silently guesses on ambiguous input.
+
+## Repository layout
+
+```
+src/pitch/reader.sls     derived lossless reader (see header for changes)
+vendor/laesare/          pristine upstream copy, never edited
+tests/                   regression baseline plus pitch's own tests
+docs/DESIGN.md           design decisions and open questions
+openspec/                proposals and capability specs
+```
 
 ## Vendored code
 
-`vendor/laesare/` holds an unmodified copy of `laesare` at tag `v1.0.3`,
-kept alongside the derived reader at `src/pitch/reader.sls` so the changes
-are always visible:
+`vendor/laesare/` holds an unmodified copy of `laesare` at tag `v1.0.3`, kept
+alongside the derived reader at `src/pitch/reader.sls` so the changes are always
+visible:
 
 ```
 make test             # reader regression suite plus pitch's own tests
@@ -40,14 +125,20 @@ make vendor-verify    # confirm vendor/ has not been edited
 against `(pitch reader)`; it is the evidence that the vendored lexical analysis
 still behaves identically. `tests/test-recording.sps` covers what pitch adds.
 
-See [`vendor/laesare/VENDOR.md`](vendor/laesare/VENDOR.md) for the pin and
-the refresh procedure.
+See [`vendor/laesare/VENDOR.md`](vendor/laesare/VENDOR.md) for the pin and the
+refresh procedure.
+
+## References
+
+- [`laesare`](https://gitlab.com/weinholt/laesare) — R6RS/R7RS lexer and reader; the basis for pitch's lossless lexer.
+- [`bwbensonjr/laesare`](https://github.com/bwbensonjr/laesare) — mirror carrying the source-text recording patch.
+- [`black`](https://black.readthedocs.io/en/stable/the_black_code_style/current_style.html) — the code style pitch is modelled on.
+- [Racket `fmt`](https://docs.racket-lang.org/fmt/index.html) — the closest existing analogue for a Lisp.
+- [SRFI 272: Pretty Printing](https://srfi.schemers.org/srfi-272/) — source of the style grammar used as pitch's configuration format.
+- [*A Pretty Expressive Printer*](https://arxiv.org/abs/2310.01530) — the layout algorithm.
+- [Chez Scheme](https://github.com/cisco/chezscheme) — pitch's host implementation.
 
 ## License
 
 Pitch is MIT licensed; see [`LICENSE`](LICENSE). It incorporates MIT-licensed
-code from `laesare` by G. Weinholt - see [`NOTICE`](NOTICE).
-
-
-
-
+code from `laesare` by G. Weinholt — see [`NOTICE`](NOTICE).
