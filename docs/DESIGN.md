@@ -148,9 +148,28 @@ input is never formatted, those tokens are never printed.
 
 ### Position information
 
-The current reader doesn't capture source position, but collecting it
-is nearly free and we should probably do that for convenience and
-future-proofing.
+**Settled.** The reader records position two ways and the CST may use either.
+Every token carries a character offset span (`token-start`, `token-end`) and a
+line/column span (`token-start-line`, `token-start-column`, `token-end-line`,
+`token-end-column`).
+
+Line is 1-based, column is 0-based, and both spans are half-open: the end
+describes the character *after* the token. So adjacent tokens share a boundary
+position, and a zero-width token's start equals its end. The consequence worth
+knowing is that a token whose text ends with a line ending reports an end
+position on the following line — every line comment does — so `end-line` is not
+"the last line the token occupies".
+
+Columns count characters, consistently with the offsets. They are not LSP
+columns, which count UTF-16 code units; exporting to an editor protocol needs a
+conversion.
+
+Positions are captured in the `get-token` wrapper, which brackets the outermost
+call. They are therefore correct on the `#;`, directive and error-recovery paths,
+where the reader's own `reader-saved-line` and `reader-saved-column` describe the
+innermost recursive entry rather than the token returned. Do not reach for the
+saved fields: they agree with the token for everything that does not recurse,
+which is exactly what makes them dangerous.
 
 ## 4. Dialects
 

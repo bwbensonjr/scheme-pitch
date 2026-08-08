@@ -21,6 +21,16 @@
 ;;     call is in progress, the text of the token being read. Both are updated
 ;;     in get-char, the single point where input is consumed.
 ;;
+;;   - Tokens carry their start and end line and column as well as their offset
+;;     span. The wrapper reads the reader's position around the outermost call,
+;;     so these are correct on the recursive paths where reader-saved-line and
+;;     reader-saved-column describe the innermost entry instead. Both spans are
+;;     half-open and columns count characters.
+;;
+;;   - get-char no longer advances the line and column when it returns the
+;;     end-of-file object, which used to leave the reported position one column
+;;     past the last character.
+;;
 ;;   - Upstream's get-token is now get-token*, unchanged apart from its name
 ;;     and its internal recursive calls. The exported get-token is a wrapper
 ;;     that brackets one outermost call and returns a token record of kind,
@@ -72,6 +82,7 @@
   (export
     get-token get-token*
     token? token-kind token-text token-start token-end token-value
+    token-start-line token-start-column token-end-line token-end-column
     read-annotated read-datum
     detect-scheme-file-type
     reader? make-reader reader-warning
@@ -125,11 +136,14 @@
 ;; lookahead-char, which does not consume and so must not record.
 (define (get-char reader)
   (let ((c (rnrs:get-char (reader-port reader))))
-    (when (line-ending? reader c)
-      (reader-line-set! reader (+ (reader-line reader) 1))
-      (reader-column-set! reader -1))
-    (reader-column-set! reader (+ (reader-column reader) 1))
+    ;; Everything here is guarded on a character actually having been consumed.
+    ;; Line and column used to advance past end of input as well, which left the
+    ;; reported position one column beyond the last character.
     (when (char? c)
+      (when (line-ending? reader c)
+        (reader-line-set! reader (+ (reader-line reader) 1))
+        (reader-column-set! reader -1))
+      (reader-column-set! reader (+ (reader-column reader) 1))
       (reader-offset-set! reader (+ (reader-offset reader) 1))
       ;; The accumulator is #f unless a get-token call is in progress, so the
       ;; datum-reading path allocates nothing and behaves exactly as upstream.
@@ -179,8 +193,19 @@
      (lambda (port filename)
        (p port filename 1 0 1 0 #f 'rnrs #f 0 #f)))))
 
-;; One token, with the source text that produced it. The span is in characters
-;; and indexes the reader's input, so (substring source start end) is text.
+;; One token, with the source text that produced it. The span is given twice:
+;; as character offsets, so (substring source start end) is text, and as line
+;; and column, for reporting positions to a human.
+;;
+;; Both spans are half-open. The end describes the character after the token,
+;; which is what makes an empty token's start equal its end, and makes each
+;; token's end position equal the next token's start position. A token whose
+;; text ends with a line ending therefore reports an end position on the
+;; following line even though it occupies only one, so code asking which lines
+;; a token covers cannot read end-line directly.
+;;
+;; Columns count characters, consistently with the offsets. They are not LSP
+;; columns, which count UTF-16 code units.
 ;;
 ;; text is not always a minimal lexeme. On the error-recovery and directive
 ;; paths get-token* consumes a prefix before the token it ultimately returns,
@@ -188,9 +213,13 @@
 ;; concatenating token text reproduce the input unconditionally, malformed
 ;; input included.
 (define-record-type token
-  (fields kind text start end value)
+  (fields kind text
+          start end                  ;character offsets
+          start-line start-column    ;line is 1-based, column 0-based
+          end-line end-column
+          value)
   (sealed #t) (opaque #f)
-  (nongenerative token-v0-6f2630c8-6b1e-4d7b-85b6-f5cbdabf4795))
+  (nongenerative token-v0-09440c9d-4d3c-4540-a624-43b7be9f7a40))
 
 (define (reader-mark reader)
   (reader-saved-line-set! reader (reader-line reader))
@@ -558,14 +587,25 @@
 ;; on the atmosphere, directive and error-recovery paths, and everything those
 ;; recursive calls consume stays in the accumulator, so it is attributed to the
 ;; token finally returned instead of being lost.
+;; The position is read before get-token* runs, when no character of this token
+;; has been consumed yet, so it is the position of the token's first character.
+;; That is the same instant at which reader-mark fires for the outermost call,
+;; which is why these positions are right on the recursive paths where
+;; reader-saved-line and reader-saved-column are not.
 (define (get-token p)
   (assert (reader? p))
-  (let ((start (reader-offset p)))
+  (let ((start (reader-offset p))
+        (start-line (reader-line p))
+        (start-column (reader-column p)))
     (reader-text-set! p '())
     (let-values (((kind value) (get-token* p)))
       (let ((text (list->string (reverse (reader-text p)))))
         (reader-text-set! p #f)
-        (make-token kind text start (reader-offset p) value)))))
+        (make-token kind text
+                    start (reader-offset p)
+                    start-line start-column
+                    (reader-line p) (reader-column p)
+                    value)))))
 
 ;; Get the next token. Can be a lexeme, directive, whitespace or comment.
 (define (get-token* p)

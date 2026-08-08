@@ -86,6 +86,26 @@
 (test-equal 3 (final-offset "\x3bb;\x3bb;\x3bb;"))
 (test-end)
 
+;; Reading past the end of input must not move the reported position. The
+;; reader used to advance the column for the end-of-file object, which put the
+;; position one past the last character.
+(test-begin "end-of-input")
+(let ((r (make-string-reader "ab\ncd")))
+  (let lp () (unless (eof-object? (read-datum r)) (lp)))
+  (let ((line (reader-line r))
+        (column (reader-column r))
+        (offset (reader-offset r)))
+    (test-equal 2 line)
+    (test-equal 2 column)
+    (test-equal 5 offset)
+    ;; Keep reading well past the end; nothing may move.
+    (read-datum r)
+    (read-datum r)
+    (test-equal line (reader-line r))
+    (test-equal column (reader-column r))
+    (test-equal offset (reader-offset r))))
+(test-end)
+
 ;;; Source-text recording
 
 ;; All tokens of input, up to but not including the eof token.
@@ -277,6 +297,152 @@
   (test-assert (not (rejects? "#u8(1)" 'r7rs)))
   (test-assert (rejects? "#true" 'r6rs))
   (test-assert (not (rejects? "#true" 'r7rs))))
+(test-end)
+
+;;; Positions
+
+;; Walk the source to an offset and return (line column), independently of the
+;; reader. If this and the reader ever disagree, one of them is wrong; the point
+;; is that they are not the same code.
+(define (offset->position src offset)
+  (let lp ((i 0) (line 1) (column 0))
+    (if (>= i offset)
+        (list line column)
+        (let ((c (string-ref src i)))
+          (cond ((memv c '(#\linefeed #\x85 #\x2028 #\x2029))
+                 (lp (+ i 1) (+ line 1) 0))
+                ((char=? c #\return)
+                 (if (and (< (+ i 1) (string-length src))
+                          (memv (string-ref src (+ i 1)) '(#\linefeed #\x85)))
+                     (lp (+ i 1) line (+ column 1))
+                     (lp (+ i 1) (+ line 1) 0)))
+                (else
+                 (lp (+ i 1) line (+ column 1))))))))
+
+(define (token-start-position t)
+  (list (token-start-line t) (token-start-column t)))
+
+(define (token-end-position t)
+  (list (token-end-line t) (token-end-column t)))
+
+;; Every token's recorded positions must agree with the reference walk.
+(define (positions-agree? input . mode*)
+  (for-all (lambda (t)
+             (and (equal? (token-start-position t)
+                          (offset->position input (token-start t)))
+                  (equal? (token-end-position t)
+                          (offset->position input (token-end t)))))
+           (apply tokens input mode*)))
+
+;; Half-openness: each token's end position is the next token's start position.
+(define (positions-contiguous? input . mode*)
+  (let lp ((ts (apply tokens input mode*)))
+    (cond ((or (null? ts) (null? (cdr ts))) #t)
+          ((equal? (token-end-position (car ts))
+                   (token-start-position (cadr ts)))
+           (lp (cdr ts)))
+          (else #f))))
+
+(define (nth-token input n . mode*)
+  (list-ref (apply tokens input mode*) n))
+
+(test-begin "positions")
+
+;; Agreement with an independent walk of the source, over inputs exercising
+;; multi-line tokens, atmosphere and every line-ending form.
+(test-assert (positions-agree? "(a b)"))
+(test-assert (positions-agree? "(a\n  #;(b\n     c)\n  d)"))
+(test-assert (positions-agree? "x\r\ny #| m\nn |# z"))
+(test-assert (positions-agree? "a ; hi\nb"))
+(test-assert (positions-agree? "a\rb\r\nc\x85;d\x2028;e\x2029;f"))
+(test-assert (positions-agree? "#!r6rs\n(a)"))
+(test-assert (positions-agree? "#!/usr/bin/env scheme-script\n(a)"))
+
+;; Contiguity, which is what half-open means operationally.
+(test-assert (positions-contiguous? "(a\n  #;(b\n     c)\n  d)"))
+(test-assert (positions-contiguous? "a ; hi\nb"))
+(test-assert (positions-contiguous? "x\r\ny #| m\nn |# z"))
+(test-end)
+
+(test-begin "position-origin")
+;; The first token of a source starts at the origin.
+(test-equal '(1 0) (token-start-position (nth-token "(a)" 0)))
+(test-equal '(1 0) (token-start-position (nth-token "   x" 0)))
+(test-equal '(1 0) (token-start-position (nth-token "; c\nx" 0)))
+(test-end)
+
+(test-begin "position-extent")
+;; A token confined to one line: same line, column advanced by its length.
+(let ((t (nth-token "\n\n    abc" 1)))       ;the identifier, after whitespace
+  (test-equal '(3 4) (token-start-position t))
+  (test-equal '(3 7) (token-end-position t))
+  (test-equal "abc" (token-text t)))
+
+;; A token spanning lines: end column is measured from its final line.
+(let ((t (nth-token "x #| m\nn |# z" 2)))    ;the nested comment
+  (test-equal "#| m\nn |#" (token-text t))
+  (test-equal '(1 2) (token-start-position t))
+  (test-equal '(2 4) (token-end-position t)))
+
+;; A token whose text ends with a line ending reports the following line.
+(let ((t (nth-token "a ; hi\nb" 2)))         ;the line comment
+  (test-equal "; hi\n" (token-text t))
+  (test-equal '(1 2) (token-start-position t))
+  (test-equal '(2 0) (token-end-position t)))
+(test-end)
+
+;; The recursive lexer paths, where reader-saved-line and reader-saved-column
+;; describe the innermost entry rather than the token returned.
+(test-begin "position-recursive-paths")
+
+;; The datum comment starts at its own #;, not at the datum inside it. The
+;; reader's saved position reports 3/6 here.
+(let ((t (nth-token "(a\n  #;(b\n     c)\n  d)" 3)))
+  (test-equal "#;(b\n     c)" (token-text t))
+  (test-equal '(2 2) (token-start-position t))
+  (test-equal '(3 7) (token-end-position t)))
+
+;; A directive that is not at the start of the source.
+(let ((t (nth-token "(a)\n#!fold-case\n(B)" 4)))
+  (test-equal "#!fold-case" (token-text t))
+  (test-equal '(2 0) (token-start-position t)))
+
+;; Malformed input recovered in tolerant mode.
+(with-exception-handler
+  (lambda (con) (unless (warning? con) (raise con)))
+  (lambda ()
+    (let ((r (make-string-reader "(a\n #z b)")))
+      (reader-mode-set! r 'r7rs)
+      (reader-tolerant?-set! r #t)
+      (let lp ((acc '()))
+        (let ((t (get-token r)))
+          (if (eq? (token-kind t) 'eof)
+              (let ((ts (reverse acc)))
+                ;; Whatever the recovery produced, positions stay consistent
+                ;; with the offsets and remain contiguous.
+                (test-assert
+                 (for-all (lambda (t)
+                            (equal? (token-start-position t)
+                                    (offset->position "(a\n #z b)"
+                                                      (token-start t))))
+                          ts)))
+              (lp (cons t acc))))))))
+(test-end)
+
+(test-begin "position-end-of-file")
+;; The eof token is zero-width, so its start and end positions coincide and
+;; match its offsets.
+(let* ((ts (let ((r (make-string-reader "ab\ncd")))
+             (let lp ((acc '()))
+               (let ((t (get-token r)))
+                 (if (eq? (token-kind t) 'eof)
+                     (reverse (cons t acc))
+                     (lp (cons t acc)))))))
+       (eof (list-ref ts (- (length ts) 1))))
+  (test-equal 'eof (token-kind eof))
+  (test-equal (token-start eof) (token-end eof))
+  (test-equal (token-start-position eof) (token-end-position eof))
+  (test-equal '(2 2) (token-start-position eof)))
 (test-end)
 
 (test-exit)
