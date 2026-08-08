@@ -15,11 +15,13 @@ help:
 
 # test-reader.sps is the regression baseline: the vendored laesare suite,
 # ported to (pitch reader) and otherwise unmodified. test-recording.sps covers
-# what pitch adds. Must be run from the repo root; the read-files test in the
-# baseline opens a relative path.
+# what pitch adds to the reader, and test-cst.sps covers the CST layer. Must be
+# run from the repo root; the read-files and round-trip-files tests open
+# relative paths.
 test:
 	@$(CHEZ) --libdirs $(LIBDIRS) --program tests/test-reader.sps
 	@$(CHEZ) --libdirs $(LIBDIRS) --program tests/test-recording.sps
+	@$(CHEZ) --libdirs $(LIBDIRS) --program tests/test-cst.sps
 
 # The authoritative changeset: pristine upstream reader vs. pitch's derived one.
 # Exit status is ignored because a non-empty diff is the expected state.

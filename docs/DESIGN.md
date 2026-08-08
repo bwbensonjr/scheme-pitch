@@ -105,46 +105,149 @@ assert one level down.
 
 ### Text ownership
 
-**Open.** Root holds the source string and nodes hold spans, versus every token
-carrying its own copy. The reader currently provides both (`token-text` plus
-`token-start`/`token-end`). Spans-only avoids duplicating large files; text-only
-avoids threading the source through. Pick one and state it.
+**Settled: the token owns the text.** A leaf holds a reader token and its text
+is `token-text`. Offsets and line/column stay reachable through the token for
+diagnostics, but are never the authority for output.
+
+The alternative — root holds the source string, nodes hold spans — was rejected
+on three grounds. The reader already allocates a text string per token, so spans
+save nothing unless the reader also stops recording text, which means editing the
+derived reader for a benefit we do not need. Spans force the source string to be
+threaded through every printer and checker and retained after the port closes.
+And spans are wrong for the tree the formatter eventually builds, whose
+whitespace leaves correspond to no input span at all.
+
+A consequence worth stating: because text is authoritative and parsed values are
+not, `#!fold-case` cannot damage losslessness. It changes `token-value` for
+identifiers and leaves `token-text` alone.
+
+The same rule extends to anything derivable. Bracket shape is read from the
+delimiter tokens' kinds rather than stored on the list node, and a compound
+node's kind is read from its opening token. A second copy of a fact is a second
+thing that can be wrong, and disagreeing with the text is the failure this whole
+layer exists to prevent.
 
 ### `#;` datum comments
 
-**Recommended: opaque.** The lexer has already made this choice — `#;(b c)` is a
+**Settled: opaque.** The lexer has already made this choice — `#;(b c)` is a
 single token whose text spans the commented datum — so reflowing inside it would
 require re-lexing. Preserving the exact text is also what SRFI 272 does (it
-makes `#;` handling optional even in its `advanced` layer). Record it as a
-decision rather than leaving it as an accident of the token layer.
+makes `#;` handling optional even in its `advanced` layer).
 
-### Node kinds needed
+The CST therefore represents a datum comment as one leaf, and classifies it as
+trivia. A consequence: an unbalanced bracket *inside* a `#;` datum is a lexical
+problem, not a parse problem, and surfaces as a reader warning rather than a
+structural error.
+
+### Node kinds
+
+**Settled.** Seven kinds: `leaf`, `document`, `list`, `vector`, `bytevector`,
+`prefix`, `error`. List, vector and bytevector share one record and are told
+apart by their opening token.
 
 - **Abbreviations.** `'x` is a prefix node retaining the abbreviation token,
   never rewritten to `(quote x)`. Same for `` ` ``, `,`, `,@`, `#'`, `` #` ``,
-  `#,`, `#,@`.
-- **Improper tails.** The `.` is a token; list nodes need a representation that
-  survives it. Note that laesare's dotted-pair path is where upstream discards
-  comments, so this needs care.
+  `#,`, `#,@`. Trivia between the marker and the datum are children of the
+  prefix node.
+- **Improper tails.** The `.` is an ordinary child of the list node, with no
+  wrapping node and no tail field. Inventing one would create a second
+  description of element order that must be kept consistent with the text, and
+  would need a home for the trivia that can surround the dot (`(a . ; why\n b)`).
+  Since laesare's dotted-pair path is where upstream discards comments, the point
+  is to have no separate path to lose them on. A predicate over the child
+  sequence answers whether a list is improper.
 - **Vectors and bytevectors.** `#(`, `#vu8(`, `#u8(` are open-delimiter tokens
-  of distinct kinds, and their children can contain comments. These must be
+  of distinct kinds, and their children can contain comments. These are
   reflowable list-like nodes. Dropping them to `write` is precisely how the
-  lispunion formatter loses comments inside vectors.
-- **Datum labels.** `#0=` and `#0#` are prefix tokens for layout purposes.
-  `cst->datum` must reconstruct the graph, which is where the cyclic-comparator
-  requirement above originates.
+  lispunion formatter loses comments inside vectors. `#vu8(` and `#u8(` give the
+  same node kind — the spelling difference lives in the token, which is how the
+  tree stays dialect-agnostic while preserving dialect-specific spelling.
+- **Datum labels.** `#0=` is a prefix node and `#0#` is a leaf. `cst->datum`
+  must reconstruct the graph, which is where the cyclic-comparator requirement
+  above originates.
+
+Interior nodes hold their opening and closing leaves in dedicated fields rather
+than as the first and last members of the child sequence. The deciding argument
+is error representation: with a dedicated field, an unclosed list has `close` of
+`#f` explicitly, whereas "the last child happens not to be a close token" is
+ambiguous with a well-formed tree.
+
+### The leaf sequence invariant
+
+**Settled.** Walking a tree's leaves in order yields exactly the token vector it
+was parsed from — same tokens, same order, none added, dropped, duplicated or
+reordered. This holds for malformed input too.
+
+It is stronger than byte-for-byte round-trip and implies it, given that
+concatenating the token vector reproduces the source. It is worth asserting
+separately because when it fails it names the token that moved, whereas a
+round-trip failure reports a string mismatch and leaves the diagnosis to a human.
 
 ### Malformed input
 
-**Recommended.** Error node kinds in the tree, and the CLI **refuses to format**:
-exit non-zero, leave the file untouched, report the position. A formatter is run
-from editors on half-typed buffers, so tolerant *parsing* is required, but
+**Settled.** Parsing is tolerant and always returns a tree; a formatter is run
+from editors on half-typed buffers. What it does not do is guess: no token is
+inserted, dropped or substituted to make a malformed input well-formed. No
+closing delimiter is synthesized and no stray one is discarded.
+
+Cleanliness is reported by a **diagnostics list**, not a flag: `parse` returns
+the document and a list of diagnostics, and a tree is clean exactly when that
+list is empty. A flag would be a second copy of a fact the list already carries.
+The CLI, when there is one, **refuses to format** an unclean tree: exit non-zero,
+leave the file untouched, report the position. Tolerant *parsing* is required;
 tolerant *output* is not.
+
+Diagnostics take their position from the token they concern, never from the
+`&source-information` on the reader's conditions. That condition position is
+built from `reader-saved-line`/`reader-saved-column`, which per "Position
+information" below describe the innermost recursive lexer entry rather than the
+token returned — right often enough to be dangerous.
+
+The representations, all of which retain every token involved:
+
+| Input | Representation |
+|---|---|
+| unclosed `(` at eof | `list` node with `close` of `#f` |
+| unexpected `)` | `error` node wrapping the stray leaf |
+| `(a]` | `list` node closed by the mismatched leaf, plus a diagnostic |
+| `'` at eof | `prefix` node with `datum` of `#f` |
+| misplaced `.` | list keeps the dot leaf, plus a diagnostic |
+| lexical warning | the token as lexed, plus a diagnostic |
 
 This also resolves the non-minimal-span note in the derived reader's header. On
 error-recovery paths a token's recorded text includes a consumed prefix; that is
 harmless for round-tripping but would preserve junk if printed. Since malformed
-input is never formatted, those tokens are never printed.
+input is never formatted, those tokens are never printed. It does mean an error
+node can cover slightly more text than the offending lexeme, which affects the
+span shown in a diagnostic but not the token's start position.
+
+### Tokenizing
+
+**Settled.** A `tokenize` step materializes the full token vector, and the parser
+consumes that vector rather than streaming from `get-token`.
+
+Layer 0 and the future layer 1 token-equivalence check both want a token
+sequence, and materializing it once means they compare against the same
+inspectable object. It also makes a lexer bug distinguishable from a parser bug
+by looking at the vector. Source files are small enough that holding it is not a
+concern.
+
+The reader runs in `rnrs` mode, the permissive union that satisfies every
+`assert-mode` check, and with `reader-tolerant?` set, so a lexical error is
+recorded as a diagnostic and lexing continues to end of input. Tolerant mode is
+what makes the layer honest: in strict mode a lexical error raises and there is
+no tree at all, whereas tolerant mode still attributes every character to a
+token, so the round-trip guarantee survives malformed input.
+
+**Open.** An in-file `#!r6rs` or `#!r7rs` directive *mutates* `reader-mode`
+mid-file, narrowing acceptance, so a file declaring `#!r6rs` and then writing
+`#u8(` warns. This is upstream behavior and arguably right — the file declared
+itself — but it sits in tension with the permissive-union invariant. In tolerant
+mode it degrades to a diagnostic rather than a failure. Overriding it means
+editing the derived reader, so it belongs to its own proposal if it is wanted.
+
+**Open.** Whether `tokenize` should expose strict mode. A formatter always wants
+tolerant, so not exposing the choice is simpler and can be relaxed later.
 
 ### Position information
 
