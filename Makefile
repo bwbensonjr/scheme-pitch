@@ -12,10 +12,30 @@ ORACLE_REF := $(shell mktemp -t pitch-layout-ref)
 
 PREFIX ?= /usr/local
 
-.PHONY: help test oracle-layout vendor-diff vendor-verify install uninstall
+# The project's own sources: the libraries pitch is built from and owns. Run
+# `make format` before committing; `make format-check` is the same question
+# without the rewrite, for a hook or a CI step.
+#
+# src/pitch/reader.sls is deliberately absent. It is derived from
+# vendor/laesare/reader.sls, and the diff between them is required to stay
+# legible and minimal because it is both the record of what pitch changed and
+# the candidate patch to offer upstream. Reformatting it takes `make
+# vendor-diff` from 337 lines to 1804 and leaves neither. Derived code is left
+# alone here for the same reason vendored code is never edited.
+#
+# tests/ is out of scope too: these are the files that build the tool.
+# tests/test-reader.sps in particular is laesare's own suite, ported no further
+# than library renaming, and reformatting it would end that.
+FORMAT_SOURCES := $(filter-out src/pitch/reader.sls,$(wildcard src/pitch/*.sls)) \
+                  src/pitch/main.sps
+
+.PHONY: help test oracle-layout vendor-diff vendor-verify install uninstall \
+        format format-check
 
 help:
 	@echo "test           run the reader regression suite"
+	@echo "format         format pitch's own sources in place"
+	@echo "format-check   check those sources; non-zero if any would change"
 	@echo "bin/pitch      generate the wrapper script for this checkout"
 	@echo "install        install pitch under PREFIX (default $(PREFIX))"
 	@echo "uninstall      remove an installed pitch from PREFIX"
@@ -53,6 +73,23 @@ test:
 	@$(CHEZ) --libdirs $(LIBDIRS) --program tests/test-print.sps
 	@$(CHEZ) --libdirs $(LIBDIRS) --program tests/test-format.sps
 	@$(CHEZ) --libdirs $(LIBDIRS) --program tests/test-cli.sps
+
+# Pitch formats itself. This runs the program out of the source tree rather than
+# through bin/pitch, so it works in a fresh clone with nothing generated.
+#
+# Rewriting these files while the formatter is running from them is safe: Chez
+# loads every library at startup, so the process is not reading what it rewrites.
+format:
+	@$(CHEZ) --libdirs $(LIBDIRS) --program src/pitch/main.sps \
+	  --dialect r6rs $(FORMAT_SOURCES)
+
+# Note that make reports any failing recipe as its own exit 2, so pitch's
+# distinction between "would reformat" (1) and "bad invocation" (2) is not
+# visible through this target. A CI step that needs to tell them apart should
+# invoke pitch directly.
+format-check:
+	@$(CHEZ) --libdirs $(LIBDIRS) --program src/pitch/main.sps \
+	  --check --dialect r6rs $(FORMAT_SOURCES)
 
 # The wrapper is generated, never committed: it embeds this checkout's absolute
 # paths, so a committed one would be one developer's directory layout. .gitignore

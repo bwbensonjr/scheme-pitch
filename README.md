@@ -17,6 +17,20 @@ make install PREFIX=~/.local   # or install it somewhere on PATH
 
 The wrapper execs Chez, so `chez` must be on `PATH` at run time.
 
+Pitch formats itself. Run this before committing:
+
+```
+make format         # format pitch's own sources in place
+make format-check   # the same question without the rewrite
+```
+
+`FORMAT_SOURCES` in the `Makefile` is the project's own libraries — the code
+pitch is built from and owns. `src/pitch/reader.sls` is deliberately excluded:
+it is derived from `vendor/laesare/reader.sls`, and the diff between them has to
+stay legible because it is the candidate patch to offer upstream. Derived code is
+left alone for the same reason vendored code is never edited, and `tests/` is out
+of scope because those files do not build the tool.
+
 ```
 pitch f.sls                 rewrite f.sls in place
 pitch src/                  rewrite every Scheme file under src/

@@ -55,14 +55,11 @@
     ;; the grammar
     style->shape
     ;; the descriptor
-    styled? styled-slots styled-tail
-    slot? slot-style slot-optional-id? slot-requires-list?
-    tail? tail-style tail-fill?
-    nested-style? nested-style-shape
+    styled? styled-slots styled-tail slot? slot-style slot-optional-id?
+    slot-requires-list? tail? tail-style tail-fill? nested-style? nested-style-shape
     ;; tables
-    make-style-table style-table? style-table-ref
-    dialect-style-table
-    core-style-table r6rs-style-table r7rs-style-table)
+    make-style-table style-table? style-table-ref dialect-style-table core-style-table
+    r6rs-style-table r7rs-style-table)
   (import
     (rnrs base (6))
     (rnrs control (6))
@@ -70,206 +67,198 @@
     (rnrs hashtables (6))
     (rnrs records syntactic (6)))
 
-;;; The descriptor
-;;
-;; A compiled style is a slot list and a tail rule. An *element style* -- what
-;; one subform is laid out as -- is one of:
-;;
-;;   expression      laid out by the ordinary rules; a list here is looked up
-;;   datum           never looked up; a list here takes the generic shape
-;;   (nested shape)  never looked up; a list here is laid out headless by shape
-;;
-;; Three cases rather than eleven. `f`, `l` and `h` are a nested shape with a
-;; fill tail; a clause terminal is a nested shape with one slot and a body.
+  ;;; The descriptor
+  ;;
+  ;; A compiled style is a slot list and a tail rule. An *element style* -- what
+  ;; one subform is laid out as -- is one of:
+  ;;
+  ;;   expression      laid out by the ordinary rules; a list here is looked up
+  ;;   datum           never looked up; a list here takes the generic shape
+  ;;   (nested shape)  never looked up; a list here is laid out headless by shape
+  ;;
+  ;; Three cases rather than eleven. `f`, `l` and `h` are a nested shape with a
+  ;; fill tail; a clause terminal is a nested shape with one slot and a body.
 
-(define-record-type styled
-  (fields slots tail)
-  (sealed #t) (opaque #f)
-  (nongenerative styled-v0-6b1c4f92-08ad-4d31-95e7-3c2b7a41d6f0))
+  (define-record-type styled
+    (fields slots tail)
+    (sealed #t)
+    (opaque #f)
+    (nongenerative styled-v0-6b1c4f92-08ad-4d31-95e7-3c2b7a41d6f0))
 
-;; optional-id?   consumes its element only if that element is an identifier
-;; requires-list? the style does not apply unless the element is a list
-(define-record-type slot
-  (fields style optional-id? requires-list?)
-  (sealed #t) (opaque #f)
-  (nongenerative slot-v0-2f7d8e13-c45a-4b66-9e02-71a3d5c8b4ef))
+  ;; optional-id?   consumes its element only if that element is an identifier
+  ;; requires-list? the style does not apply unless the element is a list
+  (define-record-type slot
+    (fields style optional-id? requires-list?)
+    (sealed #t)
+    (opaque #f)
+    (nongenerative slot-v0-2f7d8e13-c45a-4b66-9e02-71a3d5c8b4ef))
 
-;; fill? packs the remaining elements instead of giving each its own line
-(define-record-type tail
-  (fields style fill?)
-  (sealed #t) (opaque #f)
-  (nongenerative tail-v0-9a04c7bd-13e8-4f57-8c21-6d0e2b93af75))
+  ;; fill? packs the remaining elements instead of giving each its own line
+  (define-record-type tail
+    (fields style fill?)
+    (sealed #t)
+    (opaque #f)
+    (nongenerative tail-v0-9a04c7bd-13e8-4f57-8c21-6d0e2b93af75))
 
-(define-record-type nested-style
-  (fields shape)
-  (sealed #t) (opaque #f)
-  (nongenerative nested-style-v0-c58e1a7f-42b0-4d93-a6e5-08f37c14be29))
+  (define-record-type nested-style
+    (fields shape)
+    (sealed #t)
+    (opaque #f)
+    (nongenerative nested-style-v0-c58e1a7f-42b0-4d93-a6e5-08f37c14be29))
 
-;;; Terminals
+  ;;; Terminals
 
-;; A list of names or literals: no lookup, and packed rather than one per line.
-(define fill-shape (make-styled '() (make-tail 'datum #t)))
+  ;; A list of names or literals: no lookup, and packed rather than one per line.
+  (define fill-shape (make-styled '() (make-tail 'datum #t)))
 
-(define fill-element (make-nested-style fill-shape))
+  (define fill-element (make-nested-style fill-shape))
 
-;; A clause is (first . body): the first element takes the terminal's style and
-;; everything after it is an expression. It renders by the generic shape with
-;; the first element as the head, so a clause introduces no emitter of its own.
-(define (clause-element first-style)
-  (make-nested-style
-    (make-styled (list (make-slot first-style #f #f))
-                 (make-tail 'expression #f))))
+  ;; A clause is (first . body): the first element takes the terminal's style and
+  ;; everything after it is an expression. It renders by the generic shape with
+  ;; the first element as the head, so a clause introduces no emitter of its own.
+  (define (clause-element first-style)
+    (make-nested-style (make-styled (list (make-slot first-style #f #f))
+                                    (make-tail 'expression #f))))
 
-;; The slot terminals. `fc` and `lc` coincide: formals and literals are both
-;; filled, and there is nothing further to distinguish at the layout level.
-(define (terminal-slot name)
-  (case name
-    ((i d) (make-slot 'datum #f #f))
-    ((e) (make-slot 'expression #f #f))
-    ((f l h) (make-slot fill-element #f #f))
-    ((i?) (make-slot 'datum #t #f))
-    ((dc) (make-slot (clause-element 'datum) #f #t))
-    ((ec) (make-slot (clause-element 'expression) #f #t))
-    ((fc lc) (make-slot (clause-element fill-element) #f #t))
-    (else #f)))
+  ;; The slot terminals. `fc` and `lc` coincide: formals and literals are both
+  ;; filled, and there is nothing further to distinguish at the layout level.
+  (define (terminal-slot name)
+    (case name
+      ((i d) (make-slot 'datum #f #f))
+      ((e) (make-slot 'expression #f #f))
+      ((f l h) (make-slot fill-element #f #f))
+      ((i?) (make-slot 'datum #t #f))
+      ((dc) (make-slot (clause-element 'datum) #f #t))
+      ((ec) (make-slot (clause-element 'expression) #f #t))
+      ((fc lc) (make-slot (clause-element fill-element) #f #t))
+      (else #f)))
 
-;; The tail rules. A starred terminal reads every remaining element as a clause
-;; of that kind, which is what stops those elements being looked up as forms.
-(define (terminal-tail name)
-  (case name
-    ((body) (make-tail 'expression #f))
-    ((fill) (make-tail 'expression #t))
-    ((dc*) (make-tail (clause-element 'datum) #f))
-    ((ec*) (make-tail (clause-element 'expression) #f))
-    ((fc* lc*) (make-tail (clause-element fill-element) #f))
-    (else #f)))
+  ;; The tail rules. A starred terminal reads every remaining element as a clause
+  ;; of that kind, which is what stops those elements being looked up as forms.
+  (define (terminal-tail name)
+    (case name
+      ((body) (make-tail 'expression #f))
+      ((fill) (make-tail 'expression #t))
+      ((dc*) (make-tail (clause-element 'datum) #f))
+      ((ec*) (make-tail (clause-element 'expression) #f))
+      ((fc* lc*) (make-tail (clause-element fill-element) #f))
+      (else #f)))
 
-;;; The grammar reader
+  ;;; The grammar reader
 
-(define (bad msg what whole)
-  (assertion-violation 'style->shape msg what whole))
+  (define (bad msg what whole) (assertion-violation 'style->shape msg what whole))
 
-(define (style->shape datum)
-  (unless (and (pair? datum) (eq? (car datum) '_))
-    (bad "A style is (_ . fmt-tail)" datum datum))
-  (parse-fmt-tail (cdr datum) datum))
+  (define (style->shape datum)
+    (unless (and (pair? datum) (eq? (car datum) '_))
+      (bad "A style is (_ . fmt-tail)" datum datum))
+    (parse-fmt-tail (cdr datum) datum))
 
-;; ⟨fmt-tail⟩. Returns a styled shape: the slots gathered so far and the rule
-;; that covers everything after them.
-(define (parse-fmt-tail t whole)
-  (cond
-    ((symbol? t)
-     (let ((tl (terminal-tail t)))
-       (if tl
-           (make-styled '() tl)
-           (bad "Not a tail rule" t whole))))
-    ((pair? t)
-     (let* ((s (parse-fmt (car t) whole))
-            (rest (parse-fmt-tail (cdr t) whole)))
-       (make-styled (cons s (styled-slots rest)) (styled-tail rest))))
-    (else
-     (bad "A style must end in a tail rule" t whole))))
+  ;; ⟨fmt-tail⟩. Returns a styled shape: the slots gathered so far and the rule
+  ;; that covers everything after them.
+  (define (parse-fmt-tail t whole)
+    (cond
+      ((symbol? t) (let ((tl (terminal-tail t)))
+                     (if tl (make-styled '() tl) (bad "Not a tail rule" t whole))))
+      ((pair? t)
+        (let* ((s (parse-fmt (car t) whole)) (rest (parse-fmt-tail (cdr t) whole)))
+          (make-styled (cons s (styled-slots rest)) (styled-tail rest))))
+      (else (bad "A style must end in a tail rule" t whole))))
 
-;; ⟨fmt⟩. Returns a slot. A fmt that is itself a fmt-tail describes a subform
-;; that is a list -- `fc*` for a binding list, `(i . ec*)` for a guard's
-;; handler -- and such a subform must be a list for the style to apply.
-(define (parse-fmt f whole)
-  (cond
-    ((and (symbol? f) (terminal-slot f)))
-    ((or (symbol? f) (pair? f))
-     (make-slot (make-nested-style (parse-fmt-tail f whole)) #f #t))
-    (else
-     (bad "Not a fmt" f whole))))
+  ;; ⟨fmt⟩. Returns a slot. A fmt that is itself a fmt-tail describes a subform
+  ;; that is a list -- `fc*` for a binding list, `(i . ec*)` for a guard's
+  ;; handler -- and such a subform must be a list for the style to apply.
+  (define (parse-fmt f whole)
+    (cond
+      ((and (symbol? f) (terminal-slot f)))
+      ((or (symbol? f) (pair? f))
+        (make-slot (make-nested-style (parse-fmt-tail f whole)) #f #t))
+      (else (bad "Not a fmt" f whole))))
 
-;;; Tables
+  ;;; Tables
 
-;; Entries are ((head ...) style), so heads sharing a shape are written once.
-;; Compiling happens here, which is what makes a defective entry a load-time
-;; failure.
-;;
-;; The two steps are separate so that a dialect table can share the core's
-;; *compiled* shapes rather than recompiling the same notation. An entry common
-;; to both standards is then one descriptor reachable from both tables, which is
-;; what "a shared entry is written exactly once" has to mean if it is to be
-;; checkable.
-(define (compile-entries entries)
-  (apply append
-         (map (lambda (entry)
-                (let ((shape (style->shape (cadr entry))))
-                  (map (lambda (head) (cons head shape)) (car entry))))
-              entries)))
+  ;; Entries are ((head ...) style), so heads sharing a shape are written once.
+  ;; Compiling happens here, which is what makes a defective entry a load-time
+  ;; failure.
+  ;;
+  ;; The two steps are separate so that a dialect table can share the core's
+  ;; *compiled* shapes rather than recompiling the same notation. An entry common
+  ;; to both standards is then one descriptor reachable from both tables, which is
+  ;; what "a shared entry is written exactly once" has to mean if it is to be
+  ;; checkable.
+  (define (compile-entries entries)
+    (apply append
+           (map (lambda (entry)
+                  (let ((shape (style->shape (cadr entry))))
+                    (map (lambda (head) (cons head shape)) (car entry))))
+                entries)))
 
-;; Later bindings win, so a dialect entry may override a core one.
-(define (bindings->table bindings)
-  (let ((h (make-eq-hashtable)))
-    (for-each (lambda (b) (hashtable-set! h (car b) (cdr b))) bindings)
-    (hashtable-copy h)))                ;immutable
+  ;; Later bindings win, so a dialect entry may override a core one.
+  (define (bindings->table bindings)
+    (let ((h (make-eq-hashtable)))
+      (for-each (lambda (b) (hashtable-set! h (car b) (cdr b))) bindings)
+      (hashtable-copy h))) ;immutable
 
-(define (make-style-table entries)
-  (bindings->table (compile-entries entries)))
+  (define (make-style-table entries) (bindings->table (compile-entries entries)))
 
-(define (style-table? x) (hashtable? x))
+  (define (style-table? x) (hashtable? x))
 
-(define (style-table-ref tbl head) (hashtable-ref tbl head #f))
+  (define (style-table-ref tbl head) (hashtable-ref tbl head #f))
 
-;;; The entries
-;;
-;; `if`, `and` and `or` are deliberately absent. What everyone writes for all
-;; three is the first argument on the opening line with the rest aligned under
-;; it, and that is precisely the generic shape, so an entry would make their
-;; output worse rather than better.
+  ;;; The entries
+  ;;
+  ;; `if`, `and` and `or` are deliberately absent. What everyone writes for all
+  ;; three is the first argument on the opening line with the rest aligned under
+  ;; it, and that is precisely the generic shape, so an entry would make their
+  ;; output worse rather than better.
 
-(define core-entries
-  '(;; binding
-    ((define)                       (_ h . body))
-    ((define-syntax)                (_ i . body))
-    ((lambda)                       (_ f . body))
-    ((case-lambda)                  (_ . fc*))
-    ((let)                          (_ i? fc* . body))
-    ((let* letrec letrec* let-values let*-values let-syntax letrec-syntax)
-                                    (_ fc* . body))
-    ;; control
-    ((when unless)                  (_ e . body))
-    ((cond)                         (_ . ec*))
-    ((case)                         (_ e . lc*))
-    ((begin)                        (_ . body))
-    ((do)                           (_ fc* ec . body))
-    ((guard)                        (_ (i . ec*) . body))
-    ((set!)                         (_ i . body))
-    ;; macro and library
-    ((syntax-rules)                 (_ l . dc*))
-    ((import)                       (_ . body))
-    ((export)                       (_ . fill))))
+  (define core-entries
+    '(;; binding
+       ((define) (_ h . body))
+       ((define-syntax) (_ i . body))
+       ((lambda) (_ f . body))
+       ((case-lambda) (_ . fc*))
+       ((let) (_ i? fc* . body))
+       ((let* letrec letrec* let-values let*-values let-syntax letrec-syntax)
+         (_ fc* . body))
+       ;; control
+       ((when unless) (_ e . body))
+       ((cond) (_ . ec*))
+       ((case) (_ e . lc*))
+       ((begin) (_ . body))
+       ((do) (_ fc* ec . body))
+       ((guard) (_ (i . ec*) . body))
+       ((set!) (_ i . body))
+       ;; macro and library
+       ((syntax-rules) (_ l . dc*))
+       ((import) (_ . body))
+       ((export) (_ . fill))))
 
-(define r7rs-entries
-  '(((define-values)                (_ f . body))
-    ((define-record-type)           (_ i h i . body))
-    ((parameterize)                 (_ fc* . body))
-    ((delay delay-force make-promise) (_ . body))
-    ((define-library)               (_ d . body))
-    ((cond-expand)                  (_ . ec*))))
+  (define r7rs-entries
+    '(((define-values) (_ f . body)) ((define-record-type) (_ i h i . body))
+                                     ((parameterize) (_ fc* . body))
+                                     ((delay delay-force make-promise) (_ . body))
+                                     ((define-library) (_ d . body))
+                                     ((cond-expand) (_ . ec*))))
 
-(define r6rs-entries
-  '(((define-record-type)           (_ i . body))
-    ((library)                      (_ d . body))
-    ((syntax-case)                  (_ e l . dc*))
-    ((with-syntax)                  (_ fc* . body))
-    ((assert)                       (_ . body))))
+  (define r6rs-entries
+    '(((define-record-type) (_ i . body)) ((library) (_ d . body))
+                                          ((syntax-case) (_ e l . dc*))
+                                          ((with-syntax) (_ fc* . body))
+                                          ((assert) (_ . body))))
 
-(define core-bindings (compile-entries core-entries))
+  (define core-bindings (compile-entries core-entries))
 
-(define core-style-table (bindings->table core-bindings))
-(define r7rs-style-table
-  (bindings->table (append core-bindings (compile-entries r7rs-entries))))
-(define r6rs-style-table
-  (bindings->table (append core-bindings (compile-entries r6rs-entries))))
+  (define core-style-table (bindings->table core-bindings))
+  (define r7rs-style-table
+    (bindings->table (append core-bindings (compile-entries r7rs-entries))))
+  (define r6rs-style-table
+    (bindings->table (append core-bindings (compile-entries r6rs-entries))))
 
-;; A dialect at this layer selects a style table and nothing else. An unknown
-;; symbol comes from a caller rather than from a file, so it raises.
-(define (dialect-style-table dialect)
-  (case dialect
-    ((common) core-style-table)
-    ((r7rs) r7rs-style-table)
-    ((r6rs) r6rs-style-table)
-    (else
-     (assertion-violation 'dialect-style-table "Not a dialect" dialect)))))
+  ;; A dialect at this layer selects a style table and nothing else. An unknown
+  ;; symbol comes from a caller rather than from a file, so it raises.
+  (define (dialect-style-table dialect)
+    (case dialect
+      ((common) core-style-table)
+      ((r7rs) r7rs-style-table)
+      ((r6rs) r6rs-style-table)
+      (else (assertion-violation 'dialect-style-table "Not a dialect" dialect)))))

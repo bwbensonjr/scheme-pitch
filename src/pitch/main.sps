@@ -27,8 +27,7 @@
 (import
   (rnrs (6))
   (rnrs programs (6))
-  (only (chezscheme) directory-list file-directory? file-symbolic-link?
-        rename-file)
+  (only (chezscheme) directory-list file-directory? file-symbolic-link? rename-file)
   (pitch cli))
 
 ;; Files are UTF-8. The reader and the printer both work in characters, and the
@@ -38,7 +37,9 @@
   (make-transcoder (utf-8-codec) (eol-style none) (error-handling-mode raise)))
 
 (define (read-file path)
-  (let ((port (open-file-input-port path (file-options) (buffer-mode block)
+  (let ((port (open-file-input-port path
+                                    (file-options)
+                                    (buffer-mode block)
                                     (utf8-transcoder))))
     (let ((text (get-string-all port)))
       (close-port port)
@@ -47,24 +48,25 @@
 ;; no-fail lets the temporary be overwritten if a previous run died between
 ;; writing it and renaming it.
 (define (write-file path text)
-  (let ((port (open-file-output-port path (file-options no-fail)
-                                     (buffer-mode block) (utf8-transcoder))))
+  (let ((port (open-file-output-port path
+                                     (file-options no-fail)
+                                     (buffer-mode block)
+                                     (utf8-transcoder))))
     (put-string port text)
     (close-port port)))
 
 ;; R6RS has no rename, which is the one operation the atomic write needs and
 ;; cannot get portably. Chez's is in the same library as the other three.
 (define host
-  (make-host
-    read-file
-    write-file
-    (lambda (from to) (rename-file from to))
-    (lambda (path) (directory-list path))
-    (lambda (path) (file-directory? path))
-    (lambda (path) (file-symbolic-link? path))
-    (lambda (path) (file-exists? path))
-    (current-input-port)
-    (current-output-port)
-    (current-error-port)))
+  (make-host read-file
+             write-file
+             (lambda (from to) (rename-file from to))
+             (lambda (path) (directory-list path))
+             (lambda (path) (file-directory? path))
+             (lambda (path) (file-symbolic-link? path))
+             (lambda (path) (file-exists? path))
+             (current-input-port)
+             (current-output-port)
+             (current-error-port)))
 
 (exit (run-cli (cdr (command-line)) host))
