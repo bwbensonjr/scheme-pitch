@@ -51,7 +51,7 @@
     reader-mode reader-mode-set!
     reader-fold-case? reader-fold-case?-set!
     reader-tolerant? reader-tolerant?-set!
-    reader-line reader-column
+    reader-line reader-column reader-offset
     reader-saved-line reader-saved-column
     annotation? annotation-expression annotation-stripped annotation-source
     annotation-source->condition source-condition? source-filename
@@ -80,12 +80,18 @@
   (rnrs:lookahead-char (reader-port reader)))
 
 ;; Get a char from the reader.
+;; The single point where input is consumed, and therefore the only place
+;; recording has to happen. Lookahead goes through lookahead-char, which does
+;; not consume and so must not record.
 (define (get-char reader)
   (let ((c (rnrs:get-char (reader-port reader))))
     (when (eqv? c #\linefeed)
       (reader-line-set! reader (+ (reader-line reader) 1))
       (reader-column-set! reader -1))
     (reader-column-set! reader (+ (reader-column reader) 1))
+    (when (char? c)
+      (reader-offset-set! reader (+ (reader-offset reader) 1))
+      (reader-text-set! reader (cons c (reader-text reader))))
     c))
 
 ;; Detects the (intended) type of Scheme source: r6rs-library,
@@ -110,19 +116,24 @@
              (else 'unknown))))
         (else 'unknown)))))
 
+;; The UID differs from upstream's because the field layout does. Keeping
+;; upstream's UID would let a separately compiled library with the old layout
+;; load against this definition, which fails silently rather than loudly.
 (define-record-type reader
   (fields port filename
           (mutable line) (mutable column)
           (mutable saved-line) (mutable saved-column)
           (mutable fold-case?)       ;boolean
           (mutable mode)             ;a symbol: rnrs, r5rs, r6rs, r7rs
-          (mutable tolerant?))       ;tolerant to errors?
+          (mutable tolerant?)        ;tolerant to errors?
+          (mutable offset)           ;characters consumed so far
+          (mutable text))            ;chars of the current token, reversed
   (sealed #t) (opaque #f)
-  (nongenerative reader-v0-eec5b78f-a766-4be4-9cd0-fbb52ec572dc)
+  (nongenerative reader-v0-5bc24d56-39f5-4d48-bfa8-0f7c48f706f6)
   (protocol
    (lambda (p)
      (lambda (port filename)
-       (p port filename 1 0 1 0 #f 'rnrs #f)))))
+       (p port filename 1 0 1 0 #f 'rnrs #f 0 '())))))
 
 (define (reader-mark reader)
   (reader-saved-line-set! reader (reader-line reader))

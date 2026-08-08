@@ -28,17 +28,19 @@ Two deviations from the plan, found while porting:
 
 ## 2. Reader state for recording
 
-- [ ] 2.1 Add an absolute character offset field and a per-token text accumulator
+- [x] 2.1 Add an absolute character offset field and a per-token text accumulator
       field to the reader record at `src/pitch/reader.sls:113`
-- [ ] 2.2 Bump the `nongenerative` UID to a fresh value in the same edit, so a
+- [x] 2.2 Bump the `nongenerative` UID to a fresh value in the same edit, so a
       stale compiled library cannot load against the new field layout
-- [ ] 2.3 Extend the record protocol to initialize offset to 0 and the
+      (now `reader-v0-5bc24d56-39f5-4d48-bfa8-0f7c48f706f6`)
+- [x] 2.3 Extend the record protocol to initialize offset to 0 and the
       accumulator to empty
-- [ ] 2.4 Export an accessor for the current offset
-- [ ] 2.5 Update `get-char` to increment the offset and append the consumed
-      character to the accumulator
-- [ ] 2.6 Re-run the baseline suite; it must still pass, since nothing observable
-      has changed yet
+- [x] 2.4 Export an accessor for the current offset
+- [x] 2.5 Update `get-char` to increment the offset and append the consumed
+      character to the accumulator, guarded on the value being a character so
+      the end-of-file object is not recorded
+- [x] 2.6 Re-run the baseline suite; it must still pass, since nothing observable
+      has changed yet: **196 passed, 0 failed**
 
 ## 3. Line and column correctness
 
