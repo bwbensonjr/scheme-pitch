@@ -8,6 +8,59 @@ developed against [Chez Scheme](https://github.com/cisco/chezscheme); the
 dialect of the code being formatted is independent of the implementation pitch
 runs on.
 
+## Usage
+
+```
+make bin/pitch                 # wrapper for this checkout
+make install PREFIX=~/.local   # or install it somewhere on PATH
+```
+
+The wrapper execs Chez, so `chez` must be on `PATH` at run time.
+
+```
+pitch f.sls                 rewrite f.sls in place
+pitch src/                  rewrite every Scheme file under src/
+pitch --check src/          write nothing; fail if anything would change
+pitch --stdout f.sls        write the formatted text to standard output
+pitch -                     format standard input to standard output
+```
+
+| Option | Meaning |
+|---|---|
+| `--stdout` | write formatted text to standard output, rewriting nothing |
+| `--check` | write nothing; fail if any input would change |
+| `--width N` | page width, default 88 |
+| `--dialect D` | `common` (default), `r6rs`, or `r7rs` |
+| `--help` | usage, on standard output |
+| `--version` | version, on standard output |
+
+| Exit | Meaning |
+|---|---|
+| 0 | every input succeeded; under `--check`, nothing would change |
+| 1 | an input was refused, or under `--check` would change |
+| 2 | a usage error, or a path that could not be read or written |
+
+The three statuses are distinct so that a CI job can tell "this code is
+unformatted" from "this invocation is wrong".
+
+**In-place is the default, and it is made safe by the write rules rather than by
+a flag.** A file is written only when its formatted text actually differs, so a
+run over an already-formatted tree touches nothing — no modification times, no
+rebuild storms. A file pitch refuses is left byte for byte as it was. Every write
+goes to a temporary beside the target and is renamed over it, so an interrupted
+run leaves a file wholly unchanged or wholly replaced.
+
+**Standard input must be named.** `pitch -` or `pitch --stdout` reads it; a bare
+`pitch` prints usage on standard error and exits 2 rather than blocking on a
+pipe, because an invocation carrying no operand is usually a script whose file
+list came out empty. `-` cannot be combined with other operands.
+
+Editors want `pitch -`. A pre-commit hook wants:
+
+```sh
+pitch --check --dialect r6rs src/ || exit 1
+```
+
 ## Principles
 
 - **Reflows from scratch.** Prior line breaks and indentation are discarded and
@@ -181,9 +234,12 @@ Selection is by explicit `--dialect`, defaulting to content sniffing (`import`
 a magic comment override. Pitch never silently guesses on ambiguous input.
 
 **Today the dialect names a style table and nothing else, and it is an argument
-rather than a choice pitch makes.** `format-source` takes one; the sniffing and
-the command line do not exist yet. It defaults to the entries common to both
-standards, so a caller naming no dialect gets nothing that differs between them.
+rather than a choice pitch makes.** `--dialect` selects it and `format-source`
+takes it; the sniffing does not exist yet. It defaults to the entries common to
+both standards, so a caller naming no dialect gets nothing that differs between
+them. File extensions are used to *discover* files during a directory walk and
+for nothing else — `.scm` and `.ss` are used by both camps, so a suffix is not
+evidence about which standard a file is written in.
 
 `define-record-type` is the one form whose shape genuinely collides — same head,
 incompatible arguments — and it is what forces the table to be
@@ -207,6 +263,8 @@ src/pitch/layout.sls     the Pi-e layout engine
 src/pitch/style.sls      the style grammar and the tables; data, not code
 src/pitch/print.sls      cst->document: the translation, and comment placement
 src/pitch/format.sls     the end-to-end pipeline, and what it refuses
+src/pitch/cli.sls        the argument grammar, the write rules, the exit status
+src/pitch/main.sps       the `pitch` program: builds a host, holds no decisions
 vendor/laesare/          pristine upstream copy, never edited
 tests/                   regression baseline plus pitch's own tests
 tests/oracle/            one corpus, rendered by pitch and by pretty-expressive
@@ -233,9 +291,17 @@ still behaves identically. `tests/test-recording.sps` covers what pitch adds to
 the reader, `tests/test-cst.sps` the CST layer, `tests/test-datum.sps` the datum
 projection, `tests/test-check.sps` the safety checks, `tests/test-doc.sps` the
 document algebra, `tests/test-layout.sps` the layout engine,
-`tests/test-print.sps` the CST-to-document translation, and
+`tests/test-print.sps` the CST-to-document translation,
 `tests/test-format.sps` the end-to-end pipeline — including idempotence over
-every one of pitch's own source files.
+every one of pitch's own source files — and `tests/test-cli.sps` the command
+line.
+
+`tests/test-cli.sps` drives the CLI against an in-memory host rather than the
+filesystem, which is what lets it assert the claims that matter in that layer.
+They are all negative — a refused file is *not* written, an already-formatted
+file is *not* written — and against a real filesystem those mean comparing
+modification times and hoping about clock resolution. Against an association
+list and a write log they are exact.
 
 See [`vendor/laesare/VENDOR.md`](vendor/laesare/VENDOR.md) for the pin and the
 refresh procedure.

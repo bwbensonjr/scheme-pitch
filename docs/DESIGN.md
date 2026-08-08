@@ -356,9 +356,15 @@ closing delimiter is synthesized and no stray one is discarded.
 Cleanliness is reported by a **diagnostics list**, not a flag: `parse` returns
 the document and a list of diagnostics, and a tree is clean exactly when that
 list is empty. A flag would be a second copy of a fact the list already carries.
-The CLI, when there is one, **refuses to format** an unclean tree: exit non-zero,
-leave the file untouched, report the position. Tolerant *parsing* is required;
-tolerant *output* is not.
+**Settled and shipped.** The CLI **refuses to format** an unclean tree: exit
+non-zero, leave the file untouched, report the position. Tolerant *parsing* is
+required; tolerant *output* is not.
+
+`(pitch cli)` discharges this, and its refusal path is the same one for all three
+statuses — an unclean parse, an unsupported line ending, a failed check — because
+`format-source` returns no text under any of them and the driver branches on
+success in exactly one place. `tests/test-cli.sps` asserts it as a negative: after
+a refusal the write log is empty and the file's contents are byte-identical.
 
 Diagnostics take their position from the token they concern, never from the
 `&source-information` on the reader's conditions. That condition position is
@@ -454,6 +460,16 @@ library, `define-library` → R7RS library. File extensions are not reliable —
 `.scm` and `.ss` are used by both camps. Pitch never silently guesses; a
 formatter that guesses wrong and rewrites everyone's brackets is worse than one
 that refuses.
+
+**`--dialect` exists; the sniffing does not.** The command line takes the flag
+and validates it before opening any file — `dialect-style-table` raises on an
+unknown name, and letting that escape from inside the per-file loop would abandon
+a partially rewritten run. What is still outstanding is only the inference:
+content sniffing and the magic-comment override are a change of their own, with
+their own refusal semantics on ambiguous input. Until then the default is the
+shared core and the flag is the way to say otherwise. The extension set the
+directory walk uses is a discovery filter and never a dialect signal, for exactly
+the reason stated above.
 
 ### The lexical divergences that matter
 
