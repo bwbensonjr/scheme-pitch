@@ -13,10 +13,13 @@ help:
 	@echo "vendor-diff    show pitch's changes to laesare's reader"
 	@echo "vendor-verify  check vendor/laesare/ still matches $(LAESARE_TAG)"
 
-# Regression baseline: the vendored laesare suite, ported to (pitch reader).
-# Must be run from the repo root; the read-files test opens a relative path.
+# test-reader.sps is the regression baseline: the vendored laesare suite,
+# ported to (pitch reader) and otherwise unmodified. test-recording.sps covers
+# what pitch adds. Must be run from the repo root; the read-files test in the
+# baseline opens a relative path.
 test:
 	@$(CHEZ) --libdirs $(LIBDIRS) --program tests/test-reader.sps
+	@$(CHEZ) --libdirs $(LIBDIRS) --program tests/test-recording.sps
 
 # The authoritative changeset: pristine upstream reader vs. pitch's derived one.
 # Exit status is ignored because a non-empty diff is the expected state.

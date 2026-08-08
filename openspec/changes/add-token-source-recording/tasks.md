@@ -44,13 +44,20 @@ Two deviations from the plan, found while porting:
 
 ## 3. Line and column correctness
 
-- [ ] 3.1 Extend `get-char` to treat `#\return`, U+0085, U+2028, and U+2029 as
+- [x] 3.1 Extend `get-char` to treat `#\return`, U+0085, U+2028, and U+2029 as
       line endings, advancing the line and resetting the column
-- [ ] 3.2 Handle CRLF as a single line ending using lookahead, without consuming
-      the line feed twice
-- [ ] 3.3 Add tests for each line-ending form, including CRLF counting once and
-      positions reported after a comment containing non-line-feed separators
-- [ ] 3.4 Re-run the baseline suite
+- [x] 3.2 Handle CRLF as a single line ending using lookahead, without consuming
+      the line feed twice. Implemented without extra reader state: when a
+      carriage return is followed by linefeed or next-line, the increment is
+      deferred to the second character rather than remembering the first.
+      Carriage-return-plus-next-line is covered too, matching `get-comment`
+      and the RnRS grammar.
+- [x] 3.3 Add tests for each line-ending form, including CRLF counting once and
+      positions reported after a comment containing non-line-feed separators.
+      Added as `tests/test-recording.sps` so the upstream baseline stays
+      unmodified; wired into `make test`. Verified the new tests fail against
+      the previous `get-char` (10 of 20 failed), so they are not vacuous.
+- [x] 3.4 Re-run the baseline suite: **196 passed, 0 failed**, plus 20 new
 
 ## 4. Token record and the get-token split
 

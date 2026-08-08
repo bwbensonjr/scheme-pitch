@@ -80,12 +80,25 @@
   (rnrs:lookahead-char (reader-port reader)))
 
 ;; Get a char from the reader.
+;; Does consuming c end a line? The set matches the terminators get-comment
+;; already recognizes, so positions stay consistent with it.
+;;
+;; A carriage return followed by linefeed or next-line is a single line ending
+;; per the RnRS grammar. It is counted when the second character is consumed,
+;; not the first, which is what keeps it from counting twice without having to
+;; remember the previous character.
+(define (line-ending? reader c)
+  (cond ((memv c '(#\linefeed #\x85 #\x2028 #\x2029)) #t)
+        ((eqv? c #\return)
+         (not (memv (lookahead-char reader) '(#\linefeed #\x85))))
+        (else #f)))
+
 ;; The single point where input is consumed, and therefore the only place
 ;; recording has to happen. Lookahead goes through lookahead-char, which does
 ;; not consume and so must not record.
 (define (get-char reader)
   (let ((c (rnrs:get-char (reader-port reader))))
-    (when (eqv? c #\linefeed)
+    (when (line-ending? reader c)
       (reader-line-set! reader (+ (reader-line reader) 1))
       (reader-column-set! reader -1))
     (reader-column-set! reader (+ (reader-column reader) 1))
