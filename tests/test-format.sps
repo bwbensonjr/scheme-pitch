@@ -57,6 +57,18 @@
             ((char=? (string-ref s i) #\linefeed) (loop (+ i 1) (+ lines 1)))
             (else (loop (+ i 1) lines))))))
 
+(define (contains? haystack needle)
+  (let ((hn (string-length haystack)) (nn (string-length needle)))
+    (let loop ((i 0))
+      (cond ((> (+ i nn) hn) #f)
+            ((string=? (substring haystack i (+ i nn)) needle) #t)
+            (else (loop (+ i 1)))))))
+
+(define (raises? thunk)
+  (guard (e (#t #t))
+    (thunk)
+    #f))
+
 (define (checks-pass? a b)
   (let-values (((ok? layer detail) (check-output a b)))
     ok?))
@@ -161,6 +173,39 @@
 
 (test-end)
 
+;;; The dialect
+
+(test-begin "the dialect selects a table and nothing else")
+
+;; It changes output. `define-record-type` is the collision: same head, and two
+;; incompatible shapes, which is why the table is dialect-parameterized at all.
+(define drt "(define-record-type <p> (mk x) p? (x px))\n")
+(test-assert (not (equal? (text-of drt 40 'r6rs) (text-of drt 40 'r7rs))))
+
+;; It never changes acceptance. The reader is a permissive union, and the
+;; dialect reaches only the translation.
+(test-equal 'ok (status drt 40 'r6rs))
+(test-equal 'ok (status drt 40 'r7rs))
+(test-equal 'ok (status drt 40 'common))
+(test-equal 'ok (status "#vu8(1 2)\n" 40 'r7rs))
+(test-equal 'ok (status "#u8(1 2)\n" 40 'r6rs))
+(test-assert (contains? (text-of "#vu8(1 2)\n" 40 'r7rs) "#vu8("))
+(test-assert (contains? (text-of "#u8(1 2)\n" 40 'r6rs) "#u8("))
+
+;; A source valid in either standard is still refused on the same grounds under
+;; every dialect: the refusals are not dialect questions.
+(test-equal 'unclean-parse (status "(a" 40 'r6rs))
+(test-equal 'unclean-parse (status "(a" 40 'r7rs))
+
+;; The default is the shared core.
+(test-equal (text-of drt 40) (text-of drt 40 'common))
+
+;; An unknown dialect raises, and raises before an unclean parse could mask it.
+(test-assert (raises? (lambda () (format-source "(a)\n" "test" 40 'r5rs))))
+(test-assert (raises? (lambda () (format-source "(a" "test" 40 'r5rs))))
+
+(test-end)
+
 ;;; Taint
 
 (test-begin "a tainted layout is reported, not failed")
@@ -220,28 +265,52 @@
 
 (test-begin "the in-repo corpus formats and is idempotent")
 
+(define corpus
+  '("src/pitch/lines.sls"
+    "src/pitch/diagnostic.sls"
+    "src/pitch/cst.sls"
+    "src/pitch/parse.sls"
+    "src/pitch/datum.sls"
+    "src/pitch/check.sls"
+    "src/pitch/cost.sls"
+    "src/pitch/doc.sls"
+    "src/pitch/layout.sls"
+    "src/pitch/print.sls"
+    "src/pitch/style.sls"
+    "src/pitch/format.sls"
+    "src/pitch/reader.sls"
+    "tests/runner.sls"))
+
+(define (corpus-check path dialect)
+  (let ((source (file-contents path)))
+    (let-values (((once result) (format-source source path default-page-width
+                                               dialect)))
+      (test-equal 'ok (format-result-status result))
+      (when (string? once)
+        ;; Idempotent, and the second pass is clean too.
+        (let-values (((twice result2) (format-source once path
+                                                     default-page-width dialect)))
+          (test-equal 'ok (format-result-status result2))
+          (test-equal once twice))))))
+
+;; Every file, under r6rs -- which is what these files actually are, and whose
+;; table is the core plus its own entries, so it exercises strictly more of the
+;; table on real input than the default would.
+(for-each (lambda (path) (corpus-check path 'r6rs)) corpus)
+
+;; The dialect axis over a subset. Running the whole corpus three times would
+;; roughly triple the slowest part of `make test` to show something the files
+;; themselves cannot: they are all R6RS, so the other two dialects differ only
+;; in which entries degrade, and a few files demonstrate that as well as
+;; fourteen. What must hold under every dialect is that the checks still pass
+;; and the output is still a fixpoint, and that is what this asserts.
 (for-each
  (lambda (path)
-   (let ((source (file-contents path)))
-     (let-values (((once result) (format-source source path)))
-       (test-equal 'ok (format-result-status result))
-       (when (string? once)
-         ;; Idempotent, and the second pass is clean too.
-         (let-values (((twice result2) (format-source once path)))
-           (test-equal 'ok (format-result-status result2))
-           (test-equal once twice))))))
+   (for-each (lambda (dialect) (corpus-check path dialect))
+             '(common r7rs)))
  '("src/pitch/lines.sls"
    "src/pitch/diagnostic.sls"
-   "src/pitch/cst.sls"
-   "src/pitch/parse.sls"
-   "src/pitch/datum.sls"
-   "src/pitch/check.sls"
    "src/pitch/cost.sls"
-   "src/pitch/doc.sls"
-   "src/pitch/layout.sls"
-   "src/pitch/print.sls"
-   "src/pitch/format.sls"
-   "src/pitch/reader.sls"
    "tests/runner.sls"))
 
 (test-end)

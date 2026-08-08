@@ -34,7 +34,7 @@
     format-source
     format-result? format-result-status format-result-detail
     format-result-tainted?
-    default-page-width)
+    default-page-width default-dialect)
   (import
     (rnrs base (6))
     (rnrs control (6))
@@ -43,6 +43,7 @@
     (pitch parse)
     (pitch print)
     (pitch check)
+    (only (pitch style) dialect-style-table)
     (only (pitch cst) cst-tokens)
     (only (pitch lines) line-ending-char? strip-final-line-ending)
     (only (pitch reader) token-text)
@@ -51,6 +52,14 @@
 
 ;; README.md's default, and black's.
 (define default-page-width 88)
+
+;; The shared core table: the entries common to both standards, and nothing
+;; that differs between them. A caller naming no dialect gets no guess -- the
+;; one form whose shape collides degrades to the generic shape instead. Choosing
+;; a standard here would style the other one's spelling of that form wrong,
+;; which is worse than styling neither, and picking the right one is the job of
+;; the content sniffing that does not exist yet.
+(define default-dialect 'common)
 
 ;; status   one of ok, unclean-parse, unsupported-line-ending, check-failed
 ;; detail   what belongs to that status: a diagnostics list, the offending
@@ -100,6 +109,13 @@
     ((source) (format-source source "<string>" default-page-width))
     ((source filename) (format-source source filename default-page-width))
     ((source filename width)
+     (format-source source filename width default-dialect))
+    ((source filename width dialect)
+     ;; The dialect is resolved before anything else runs. It selects a style
+     ;; table and affects nothing else -- not acceptance, not the refusals, not
+     ;; the checks -- but an unknown one is a caller's error, and reporting it
+     ;; only at the translation stage would let an unclean parse mask it.
+     (dialect-style-table dialect)
      (let-values (((tree diagnostics) (parse-source source filename)))
        (cond
          ;; Stage 1. A tree is clean exactly when its diagnostics list is empty,
@@ -119,7 +135,7 @@
                ;; in the translation, not a property of the input, and turning
                ;; it into a status would hide it.
                (let-values (((output result)
-                             (layout (cst->document tree)
+                             (layout (cst->document tree dialect)
                                      (default-cost-factory width))))
                  (let ((tainted? (layout-result-tainted? result)))
                    ;; Stage 4. Two texts: the one that came in, and the one just

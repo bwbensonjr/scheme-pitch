@@ -5,14 +5,15 @@
 
 ;; Tests for the CST-to-document translation.
 ;;
-;; These assert on *placement and losslessness*, not on beauty. One generic
-;; shape ships, so `cond` and `let` come out looking wrong, and that is expected
-;; -- it is the graceful-degradation behavior docs/DESIGN.md §5 requires for a
-;; form no style table matches, and the table is a later change. What must be
-;; right here is that no token changes, no comment moves, and nothing crashes.
+;; Most of these assert on *placement and losslessness*, not on beauty: no
+;; token changes, no comment moves, nothing crashes. The sections that do pin an
+;; appearance say which shape they are pinning, so that a taste revision to the
+;; style table identifies exactly which expectations it is allowed to change.
 ;;
-;; Tests that pin the generic shape itself say so, so that the table's arrival
-;; identifies exactly which expectations it is allowed to change.
+;; The style table has a positive case per entry. An entry that no test
+;; exercises is indistinguishable from a head with no entry at all -- both
+;; degrade silently to the generic shape -- so an untested entry is one nobody
+;; has seen work.
 #!r6rs
 
 (import
@@ -23,22 +24,29 @@
   (pitch doc)
   (pitch cost)
   (pitch layout)
+  (pitch style)
   (tests runner))
 
 ;;; Helpers
 
-(define (doc-of src)
+(define (doc-of src . dialect)
   (let-values (((tree diagnostics) (parse-source src "test")))
-    (cst->document tree)))
+    (apply cst->document tree dialect)))
 
-(define (fmt src width)
-  (let-values (((text result) (layout (doc-of src) (default-cost-factory width))))
+;; The first datum of a source, for testing the seam directly.
+(define (first-form src)
+  (let-values (((tree diagnostics) (parse-source src "test")))
+    (car (datum-children tree))))
+
+(define (fmt src width . dialect)
+  (let-values (((text result)
+                (layout (apply doc-of src dialect) (default-cost-factory width))))
     text))
 
 ;; Formatting is defined to end a file with exactly one newline. For the small
 ;; cases below that trailing newline is noise, so most tests compare without it.
-(define (fmt* src width)
-  (let* ((s (fmt src width))
+(define (fmt* src width . dialect)
+  (let* ((s (apply fmt src width dialect))
          (n (string-length s)))
     (if (and (> n 0) (char=? (string-ref s (- n 1)) #\linefeed))
         (substring s 0 (- n 1))
@@ -166,12 +174,47 @@
 ;; Every element appears exactly once however it breaks.
 (test-assert (contains? (fmt "(f (g 1 2) (h 3 4) (i 5 6))\n" 15) "(i 5 6)"))
 
-;; Structurally identical forms lay out identically: no head is special. Two
-;; heads of equal length, one of which a style table will certainly treat
-;; differently one day, break at exactly the same places today.
+;; Structurally identical forms with no entry lay out identically. `if` is
+;; absent from the table deliberately -- what everyone writes for it is the
+;; first argument on the opening line with the rest aligned under it, which is
+;; precisely this shape, so an entry would make its output worse.
 (test-equal "(if a\n    b\n    c)" (fmt* "(if a b c)\n" 8))
 (test-equal "(xy a\n    b\n    c)" (fmt* "(xy a b c)\n" 8))
-(test-equal 'generic (compound-shape (doc-of "(let ((x 1)) x)\n")))
+(test-equal "(and a\n     b\n     c)" (fmt* "(and a b c)\n" 8))
+(test-equal "(or a\n    b\n    c)" (fmt* "(or a b c)\n" 8))
+
+(test-end)
+
+;;; The seam
+
+(test-begin "a per-form rule is consulted at exactly one point")
+
+;; A head with no entry, and one with an entry.
+(test-equal 'generic (compound-shape (first-form "(if a b c)\n") core-style-table))
+(test-equal 'generic (compound-shape (first-form "(xy a b c)\n") core-style-table))
+(test-assert (styled? (compound-shape (first-form "(let ((x 1)) x)\n")
+                                      core-style-table)))
+
+;; A head that is not an identifier leaf keys nothing.
+(test-equal 'generic (compound-shape (first-form "((f) a b)\n") core-style-table))
+(test-equal 'generic (compound-shape (first-form "(\"s\" a)\n") core-style-table))
+(test-equal 'generic (compound-shape (first-form "()\n") core-style-table))
+
+;; A vector is generic and a bytevector fills, neither by consulting a table.
+(test-equal 'generic (compound-shape (first-form "#(a b)\n") core-style-table))
+(test-equal 'fill (compound-shape (first-form "#vu8(1 2)\n") core-style-table))
+
+;; The lookup key is the token's *value*, so spellings the reader resolves to
+;; the same symbol take the same shape. The emitted text keeps its spelling.
+(test-equal "(when a\n  b)" (fmt* "(when a b)\n" 8))
+(test-equal "(|when| a\n  b)" (fmt* "(|when| a b)\n" 10))
+(test-equal "#!fold-case\n(WHEN a\n  b)" (fmt* "#!fold-case\n(WHEN a b)\n" 8))
+
+;; The dialect selects the table and nothing else.
+(test-assert (styled? (compound-shape (first-form "(library (a) b)\n")
+                                      r6rs-style-table)))
+(test-equal 'generic (compound-shape (first-form "(library (a) b)\n")
+                                     r7rs-style-table))
 
 (test-end)
 
@@ -327,6 +370,229 @@
 (test-equal "; c\n" (fmt "; c\n\n\n" 80))
 (test-equal "" (fmt "" 80))
 (test-equal "" (fmt "\n\n\n" 80))
+
+(test-end)
+
+;;; The styled shapes
+;;
+;; THIS SECTION PINS THE STYLE TABLE. One positive case per entry, at a width
+;; that forces the form to break, because an entry that only ever renders flat
+;; is an entry whose shape nothing has checked.
+
+(test-begin "slots share the opening line and the tail goes beneath")
+
+(test-equal "(when (p x)\n  (f x)\n  (g x))" (fmt* "(when (p x) (f x) (g x))\n" 20))
+(test-equal "(unless (p x)\n  (f x))" (fmt* "(unless (p x) (f x))\n" 15))
+
+;; The body indent is two columns from the opening delimiter, and it does not
+;; vary with the length of the head.
+(test-equal "(begin\n  (f)\n  (g))" (fmt* "(begin (f) (g))\n" 10))
+(test-equal "(when a\n  (f))" (fmt* "(when a (f))\n" 8))
+(test-equal "(unless a\n  (f))" (fmt* "(unless a (f))\n" 10))
+
+;; Exactly two layouts: everything on one line, or the tail fully broken. There
+;; is no rendering in which some tail elements share the opening line.
+(test-equal "(when a b c)" (fmt* "(when a b c)\n" 80))
+(test-equal "(when a\n  b\n  c)" (fmt* "(when a b c)\n" 10))
+
+(test-end)
+
+(test-begin "every core entry has a shape")
+
+(test-equal "(define (f a b)\n  (+ a b))" (fmt* "(define (f a b) (+ a b))\n" 20))
+(test-equal "(define x\n  (f a))" (fmt* "(define x (f a))\n" 12))
+(test-equal "(define-syntax m\n  (f))" (fmt* "(define-syntax m (f))\n" 18))
+(test-equal "(lambda (a b)\n  (f a)\n  (g b))" (fmt* "(lambda (a b) (f a) (g b))\n" 20))
+(test-equal "(case-lambda\n  ((a) 1)\n  ((a b) 2))"
+            (fmt* "(case-lambda ((a) 1) ((a b) 2))\n" 20))
+(test-equal "(let ((x 1) (y 2))\n  (f x y))" (fmt* "(let ((x 1) (y 2)) (f x y))\n" 20))
+(test-equal "(let loop ((x 1))\n  (loop x))" (fmt* "(let loop ((x 1)) (loop x))\n" 20))
+(test-equal "(let* ((x 1) (y 2))\n  (f x y))"
+            (fmt* "(let* ((x 1) (y 2)) (f x y))\n" 20))
+(test-equal "(letrec ((x 1))\n  (f x))" (fmt* "(letrec ((x 1)) (f x))\n" 18))
+(test-equal "(let-values (((a b) (f)))\n  (g a))"
+            (fmt* "(let-values (((a b) (f))) (g a))\n" 28))
+(test-equal "(cond\n  ((p x) 1)\n  (else 2))" (fmt* "(cond ((p x) 1) (else 2))\n" 20))
+(test-equal "(case x\n  ((1 2) 'a)\n  (else 'b))" (fmt* "(case x ((1 2) 'a) (else 'b))\n" 20))
+(test-equal "(do ((i 0 (+ i 1))) ((= i n) r)\n  (f i))"
+            (fmt* "(do ((i 0 (+ i 1))) ((= i n) r) (f i))\n" 32))
+(test-equal "(guard (e (#t (k e)))\n  (f))" (fmt* "(guard (e (#t (k e))) (f))\n" 24))
+(test-equal "(set! x\n  (f a))" (fmt* "(set! x (f a))\n" 12))
+(test-equal "(syntax-rules (else)\n  ((_ x) x))"
+            (fmt* "(syntax-rules (else) ((_ x) x))\n" 24))
+(test-equal "(import\n  (rnrs)\n  (pitch cst))" (fmt* "(import (rnrs) (pitch cst))\n" 20))
+(test-equal "(export\n  aa bb cc dd)" (fmt* "(export aa bb cc dd)\n" 14))
+
+(test-end)
+
+(test-begin "every dialect entry has a shape")
+
+(test-equal "(define-values (a b)\n  (f))" (fmt* "(define-values (a b) (f))\n" 22 'r7rs))
+(test-equal "(define-record-type <p> (mk x) p?\n  (x px))"
+            (fmt* "(define-record-type <p> (mk x) p? (x px))\n" 40 'r7rs))
+(test-equal "(parameterize ((p 1))\n  (f))" (fmt* "(parameterize ((p 1)) (f))\n" 24 'r7rs))
+(test-equal "(delay\n  (f x))" (fmt* "(delay (f x))\n" 10 'r7rs))
+(test-equal "(define-library (a b)\n  (export c))"
+            (fmt* "(define-library (a b) (export c))\n" 24 'r7rs))
+(test-equal "(cond-expand\n  (chez 1)\n  (else 2))"
+            (fmt* "(cond-expand (chez 1) (else 2))\n" 20 'r7rs))
+
+(test-equal "(define-record-type p\n  (fields x)\n  (protocol q))"
+            (fmt* "(define-record-type p (fields x) (protocol q))\n" 30 'r6rs))
+(test-equal "(library (a b)\n  (export c)\n  (import d))"
+            (fmt* "(library (a b) (export c) (import d))\n" 24 'r6rs))
+(test-equal "(syntax-case x (else)\n  ((_ y) y))"
+            (fmt* "(syntax-case x (else) ((_ y) y))\n" 24 'r6rs))
+(test-equal "(with-syntax ((a b))\n  (f))" (fmt* "(with-syntax ((a b)) (f))\n" 22 'r6rs))
+(test-equal "(assert\n  (p x))" (fmt* "(assert (p x))\n" 10 'r6rs))
+
+;; The collision, and the reason the table is dialect-parameterized at all.
+(test-assert (not (equal? (fmt "(define-record-type <p> (mk x) p? (x px))\n" 40 'r6rs)
+                          (fmt "(define-record-type <p> (mk x) p? (x px))\n" 40 'r7rs))))
+
+;; It has no entry in the shared core, so the default dialect degrades it.
+(test-equal 'generic
+            (compound-shape (first-form "(define-record-type <p> (mk x))\n")
+                            core-style-table))
+
+(test-end)
+
+(test-begin "a clause is laid out by the generic shape")
+
+;; A clause introduces no rendering of its own: it is the generic shape with its
+;; first element as the head, so the second element shares that element's line
+;; and the rest align under the second.
+(test-equal "(cond\n  ((p x) (f x)\n         (g x)))"
+            (fmt* "(cond ((p x) (f x) (g x)))\n" 16))
+;; And it drops to hanging when aligning would overflow, as any form does.
+(test-equal "(cond\n  ((p x)\n    (f x)\n    (g x)))"
+            (fmt* "(cond ((p x) (f x) (g x)))\n" 12))
+
+;; A clause element that is not a list is emitted as itself.
+(test-equal "(cond\n  a\n  (b c))" (fmt* "(cond a (b c))\n" 10))
+
+(test-end)
+
+(test-begin "formals, literals and heads fill")
+
+;; Packed, not one name per line, and wrapped under the first element.
+(test-equal "(lambda (aaa bbb\n         ccc ddd)\n  (f))"
+            (fmt* "(lambda (aaa bbb ccc ddd) (f))\n" 18))
+(test-equal "(define (fn aaa\n         bbb)\n  (f))"
+            (fmt* "(define (fn aaa bbb) (f))\n" 16))
+
+;; A non-list in a formals position is unaffected.
+(test-equal "(lambda args\n  (f args))" (fmt* "(lambda args (f args))\n" 14))
+
+;; A bytevector fills without reference to any table: its elements are octets.
+(test-equal "#vu8(1 2 3 4 5 6\n     7 8 9 10)"
+            (fmt* "#vu8(1 2 3 4 5 6 7 8 9 10)\n" 16))
+;; A vector does not: its elements can be anything, so it takes the generic
+;; shape and no two of them past the first share a line.
+(test-equal "#(1 2\n    3\n    4\n    5\n    6)" (fmt* "#(1 2 3 4 5 6)\n" 8))
+
+(test-end)
+
+(test-begin "a fill tail packs")
+
+(test-equal "(export a b)" (fmt* "(export a b)\n" 80))
+(test-equal "(export\n  aaa bbb\n  ccc)" (fmt* "(export aaa bbb ccc)\n" 10))
+;; At least one line holds more than one name, which is what distinguishes a
+;; fill from a body.
+(test-assert (contains? (fmt "(export aaa bbb ccc)\n" 10) "aaa bbb"))
+;; And `import`, which is a body, does not pack.
+(test-assert (not (contains? (fmt "(import (a) (b) (c))\n" 12) "(a) (b)")))
+
+(test-end)
+
+;;; Code and data
+
+(test-begin "a data position is never looked up")
+
+;; The sharp case: a literals list and a binding whose head spells a form that
+;; *does* have an entry. Laying either out as that form would be a defect, and
+;; the terminal in that position is what says it is not one.
+;;
+;; `cond` is the discriminator because its style puts the head alone on its own
+;; line, which no generic or filled rendering of the same list does. The third
+;; case is the control: the same list in an expression position, styled.
+(test-equal "(syntax-rules (cond aa\n               bb)\n  ((_ x) x))"
+            (fmt* "(syntax-rules (cond aa bb) ((_ x) x))\n" 24))
+(test-equal "(let ((cond aa\n            bb))\n  x)"
+            (fmt* "(let ((cond aa bb)) x)\n" 16))
+(test-equal "(f (cond\n     aa\n     bb))" (fmt* "(f (cond aa bb))\n" 12))
+
+;; Stated as the property rather than as three renderings: the head is alone on
+;; its line only where the list sits in an expression position.
+(test-assert (not (contains? (fmt "(syntax-rules (cond aa bb) ((_ x) x))\n" 24)
+                             "(cond\n")))
+(test-assert (not (contains? (fmt "(let ((cond aa bb)) x)\n" 16) "(cond\n")))
+(test-assert (contains? (fmt "(f (cond aa bb))\n" 12) "(cond\n"))
+
+;; A body element *is* looked up, which is the other half of the distinction.
+(test-equal "(begin\n  (when a\n    b))" (fmt* "(begin (when a b))\n" 12))
+
+;; And a clause's body elements are expressions too.
+(test-assert (contains? (fmt "(cond (p (when a bb cc dd)))\n" 16) "(when a\n"))
+
+(test-end)
+
+;;; Degradation
+
+(test-begin "a form that does not match its style degrades")
+
+;; Too few elements for the style's slots. A formatter meets these constantly,
+;; in macro-generating code and in half-saved buffers.
+(test-equal "(let)" (fmt* "(let)\n" 80))
+(test-equal "(when)" (fmt* "(when)\n" 80))
+(test-equal "(cond)" (fmt* "(cond)\n" 80))
+(test-assert (not (raises? (lambda () (fmt "(let () )\n" 80)))))
+
+;; A slot requiring a list that gets something else.
+(test-equal "(let x\n     y)" (fmt* "(let x y)\n" 8))
+;; But `f`, `l` and `h` do not require one, so these still match.
+(test-equal "(lambda x\n  y)" (fmt* "(lambda x y)\n" 6))
+(test-equal "(define x\n  y)" (fmt* "(define x y)\n" 6))
+
+;; An improper list: a dot has no place in any slot.
+(test-equal "(begin a . b)" (fmt* "(begin a . b)\n" 80))
+(test-equal "(begin aaa\n       . bbb)" (fmt* "(begin aaa . bbb)\n" 14))
+
+;; A comment forcing a break inside the slot region withdraws the style. The
+;; comment stays on its own line; moving it is what layer 1 refuses.
+(test-equal "(when\n  ; note\n  (p x)\n  (f))" (fmt* "(when\n ; note\n (p x) (f))\n" 40))
+(test-equal "(let\n  ; note\n  ((x 1))\n  x)" (fmt* "(let\n ; note\n ((x 1)) x)\n" 40))
+
+;; A blank line inside the slot region does too, for the same reason.
+(test-equal "(when\n\n  (p x)\n  (f))" (fmt* "(when\n\n (p x) (f))\n" 40))
+
+;; A head with no entry, and a head that is not an identifier.
+(test-equal "((f) a\n     b)" (fmt* "((f) a b)\n" 8))
+
+(test-end)
+
+;;; Comments under a style
+
+(test-begin "a style moves no comment")
+
+;; A trailing comment on a slot stays on that slot's line: the style still
+;; applies, because the gap it interrupts is the one before the tail, which
+;; breaks anyway.
+(test-equal "(when (p x) ; note\n  (f))" (fmt* "(when (p x) ; note\n (f))\n" 40))
+
+;; A trailing comment on the head of a form with no slots likewise.
+(test-equal "(begin ; note\n  (f)\n  (g))" (fmt* "(begin ; note\n (f) (g))\n" 40))
+
+;; A comment among the tail elements keeps its place.
+(test-assert (contains? (fmt "(when a (f) ; note\n (g))\n" 40) "(f) ; note\n"))
+(test-assert (contains? (fmt "(when a\n ; note\n (f))\n" 40) "\n  ; note\n"))
+
+;; An inline-capable comment does not force a break, so the style survives one
+;; sitting inside the slot region.
+(test-equal "(when #| k |# a\n  b)" (fmt* "(when #| k |# a b)\n" 12))
+
+;; A form containing a line comment still has no flat layout at any width.
+(test-assert (> (line-count (fmt "(when a ; note\n b)\n" 10000)) 2))
 
 (test-end)
 

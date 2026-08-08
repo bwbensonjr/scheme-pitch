@@ -41,7 +41,9 @@ source text
 
 The per-form style table — the SRFI 272 style grammar as the on-disk format —
 sits alongside `cst->document`, telling it which shape each form takes. It is
-the one stage not yet built; one generic shape stands in for it.
+data, in `(pitch style)`, which imports neither the CST nor the document algebra:
+a table cannot contain a document or a procedure because the library that defines
+tables cannot name one.
 
 In the CST, whitespace and comments are ordinary members of a node's child
 sequence rather than trivia attached to a neighbouring token, so concatenating a
@@ -69,13 +71,23 @@ formatted text. The cost objective it ships with is still the reference
 implementation's, not pitch's; the one encoding pitch's taste wants a corpus to
 tune against.
 
-**Every form is laid out by one generic shape.** There is no per-form style table
-yet, so `cond` and `let` come out looking wrong. That is the next change, and it
-is a lookup rather than a rewrite: the generic shape is what any form a table
-does not match has to fall back to, so it had to exist and be correct first, and
-the printer consults a single function that today ignores which form it is
-looking at. Nothing in the current output should be read as pitch's intended
-style.
+**The style table covers the R7RS-small and R6RS cores** — about thirty
+syntactic keywords, written in SRFI 272's style grammar. Only the grammar is
+borrowed: SRFI 272 is a datum printer and explicitly leaves the layout algorithm
+unspecified, so what each terminal renders as is pitch's decision. Eleven
+terminals collapse onto two facts. Whether a subform is *code* or *data* decides
+whether it is looked up at all, which is what stops `(syntax-rules (let) ...)`
+laying its literals list out as a `let`; and whether a subform is filled decides
+the rest. Anything the table does not describe — a head with no entry, wrong
+arity, a comment forcing a break where a style needs one line — falls back to the
+generic shape, which is why that shape had to exist and be correct first.
+
+`if`, `and` and `or` have no entry on purpose: the generic shape is already what
+everyone writes for them.
+
+The long tail of per-dialect library macros is not chased, and the cost objective
+is still the reference implementation's rather than pitch's. Both want a corpus
+to argue from.
 
 The port is checked against the original. `make oracle-layout` renders a corpus
 through both `(pitch layout)` and Racket's `pretty-expressive` and requires the
@@ -168,6 +180,17 @@ Selection is by explicit `--dialect`, defaulting to content sniffing (`import`
 → R6RS program, `library` → R6RS library, `define-library` → R7RS library), with
 a magic comment override. Pitch never silently guesses on ambiguous input.
 
+**Today the dialect names a style table and nothing else, and it is an argument
+rather than a choice pitch makes.** `format-source` takes one; the sniffing and
+the command line do not exist yet. It defaults to the entries common to both
+standards, so a caller naming no dialect gets nothing that differs between them.
+
+`define-record-type` is the one form whose shape genuinely collides — same head,
+incompatible arguments — and it is what forces the table to be
+dialect-parameterized rather than a single union map. Under the default it has no
+entry and falls back to the generic shape, which is the honest answer until pitch
+can tell which standard it is looking at.
+
 ## Repository layout
 
 ```
@@ -181,6 +204,7 @@ src/pitch/check.sls      layers 1 and 2, and the combined runner
 src/pitch/doc.sls        the document algebra the layout engine resolves
 src/pitch/cost.sls       the cost factory interface and the default objective
 src/pitch/layout.sls     the Pi-e layout engine
+src/pitch/style.sls      the style grammar and the tables; data, not code
 src/pitch/print.sls      cst->document: the translation, and comment placement
 src/pitch/format.sls     the end-to-end pipeline, and what it refuses
 vendor/laesare/          pristine upstream copy, never edited
