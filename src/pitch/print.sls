@@ -105,9 +105,11 @@
 ;;   datum?    whether it began from a datum rather than from trivia; this is
 ;;             what says whether it can occupy a style's slot
 ;;   style     how its pieces are laid out, assigned after the fold
+;;   blank-after? whether a blank line follows it, which decides whether its own
+;;             forced break may carry indentation
 
 (define-record-type item
-  (fields pieces blanks broken? own-line? dot? datum? style)
+  (fields pieces blanks broken? own-line? dot? datum? style blank-after?)
   (sealed #t) (opaque #f)
   (nongenerative item-v0-4c7e91a3-b2d8-4f16-8a05-e37d2b91c6f4))
 
@@ -115,7 +117,13 @@
 
 (define (item-with-style it style)
   (make-item (item-pieces it) (item-blanks it) (item-broken? it)
-             (item-own-line? it) (item-dot? it) (item-datum? it) style))
+             (item-own-line? it) (item-dot? it) (item-datum? it) style
+             (item-blank-after? it)))
+
+(define (item-with-blank-after it blank-after?)
+  (make-item (item-pieces it) (item-blanks it) (item-broken? it)
+             (item-own-line? it) (item-dot? it) (item-datum? it)
+             (item-style it) blank-after?))
 
 (define (whitespace-leaf? node)
   (and (leaf? node) (eq? (leaf-kind node) 'whitespace)))
@@ -174,10 +182,20 @@
 ;; branch here that omits that break -- including for a comment ending the
 ;; source with no terminator, which gets one anyway, and which is also what
 ;; makes a formatted file end with a newline.
-(define (leaf-doc node)
-  (if (forced-break-leaf? node)
-      (concat (verbatim (strip-final-line-ending (leaf-text node))) hard-nl)
-      (verbatim (leaf-text node))))
+;;
+;; `reset-break?` takes that break at indentation zero. It is set when a blank
+;; line follows, because the resolver indents after every break and this break
+;; is then the one that lands on the blank line -- a line holding the enclosing
+;; indentation as trailing whitespace is not blank. Neither branch omits the
+;; break, which is the property this function exists to guarantee.
+(define leaf-doc
+  (case-lambda
+    ((node) (leaf-doc node #f))
+    ((node reset-break?)
+     (if (forced-break-leaf? node)
+         (concat (verbatim (strip-final-line-ending (leaf-text node)))
+                 (if reset-break? (reset hard-nl) hard-nl))
+         (verbatim (leaf-text node))))))
 
 ;;; Nodes
 
@@ -210,19 +228,44 @@
 ;; Fold a child sequence into items. Whitespace never becomes an item; it
 ;; contributes the two facts the placement rules need, and is otherwise
 ;; discarded and re-derived, which is what "reflows from scratch" means.
+;; A whitespace run's blank-line count is its line endings less the one that
+;; terminated the preceding line -- unless the preceding token already carried
+;; that ending in its own text, which is exactly what a line comment does. After
+;; a comment, every ending in the run is a blank line. Subtracting one anyway is
+;; how `; c` followed by a blank line used to lose it.
+(define (blank-count endings prev-broken? cap)
+  (min cap (max 0 (if prev-broken? endings (- endings 1)))))
+
 (define (children->items children cap)
-  (let loop ((cs children) (endings 0) (items '()))
+  (let loop ((cs children) (endings 0) (prev-broken? #f) (items '()))
     (if (null? cs)
-        (reverse items)
+        (mark-blanks-after (reverse items))
         (let ((c (car cs)))
           (if (whitespace-leaf? c)
-              (loop (cdr cs) (+ endings (line-ending-count (leaf-text c))) items)
-              (loop (cdr cs)
-                    0
-                    (add-item items c
-                              (min cap (max 0 (- endings 1)))
-                              (node-broken? c)
-                              (= endings 0))))))))
+              (loop (cdr cs) (+ endings (line-ending-count (leaf-text c)))
+                    prev-broken? items)
+              (let ((broken? (node-broken? c)))
+                (loop (cdr cs)
+                      0
+                      broken?
+                      (add-item items c
+                                (blank-count endings prev-broken? cap)
+                                broken?
+                                (= endings 0)))))))))
+
+;; Record on each item whether a blank line follows it. Only the item before a
+;; blank run can know that, and every emitter that materializes an item needs
+;; it, so it is settled once here rather than rediscovered at each join -- where
+;; missing a case would silently leave whitespace on a line that must be empty.
+(define (mark-blanks-after items)
+  (let loop ((xs items) (out '()))
+    (cond ((null? xs) (reverse out))
+          ((null? (cdr xs)) (reverse (cons (car xs) out)))
+          (else
+           (loop (cdr xs)
+                 (cons (item-with-blank-after (car xs)
+                                              (> (item-blanks (cadr xs)) 0))
+                       out))))))
 
 ;; Where a child joins the sequence. Three outcomes, and the order matters: a
 ;; comment attaches before the dot rule can fire, so `(a . ; why` attaches the
@@ -233,7 +276,8 @@
       (cons (make-item (append (item-pieces prev) (list node))
                        (item-blanks prev) broken?
                        (item-own-line? prev) dot?
-                       (item-datum? prev) (item-style prev))
+                       (item-datum? prev) (item-style prev)
+                       (item-blank-after? prev))
             (cdr items)))
     (cond
       ;; A comment written after code on its line stays on that line. Note that
@@ -260,7 +304,8 @@
                         (and (trivia? node) (not same-line?))
                         (dot-leaf? node)
                         (not (trivia? node))
-                        'expression)
+                        'expression
+                        #f)
              items)))))
 
 ;;; Materializing
@@ -269,12 +314,18 @@
 ;; piece that is not the item's datum is trivia, and every style agrees on a
 ;; leaf, so applying the item's style to all of them is uniform rather than
 ;; approximate.
+;; An item's forced break, when it has one, is its last piece's. That is the
+;; break a following blank line lands on, so it is the one that takes the reset.
 (define (item-doc it tbl)
-  (let ((style (item-style it)))
+  (let ((style (item-style it))
+        (reset-last? (and (item-broken? it) (item-blank-after? it))))
     (let loop ((ps (item-pieces it)) (d #f))
       (if (null? ps)
           (or d empty-doc)
-          (let ((pd (styled-node-doc (car ps) style tbl)))
+          (let* ((last? (null? (cdr ps)))
+                 (pd (if (and last? reset-last? (leaf? (car ps)))
+                         (leaf-doc (car ps) #t)
+                         (styled-node-doc (car ps) style tbl))))
             (loop (cdr ps) (if d (concat d (concat space pd)) pd)))))))
 
 ;;; Joining
@@ -303,21 +354,31 @@
 ;; Without one, the head-to-first-argument join of the aligned shape -- which is
 ;; a hard space, so that the two share the opening line -- would pull it up onto
 ;; the preceding line and change which code it reads as being about.
+;; When the previous item ended in a forced break, that break already ended the
+;; line and already opened the first blank one, so `blanks` more breaks are
+;; needed rather than `blanks + 1`. That break is also under `reset` -- see
+;; `item-doc` -- so the blank line it opens is genuinely empty.
 (define (gap prev it sep)
   (let ((blanks (item-blanks it)))
-    (let ((d (cond ((> blanks 0)
-                    (hard-breaks (if (item-broken? prev) blanks (+ blanks 1))))
-                   ((item-broken? prev) empty-doc)
-                   ((item-own-line? it) hard-nl)
-                   (else sep))))
-      ;; The second of two guards on a comment swallowing the code after it.
-      ;; The first is that leaf-doc has no branch omitting the break; this one
-      ;; is that nothing is ever placed after one on the same line. Both are
-      ;; true by construction today, which is the point: this one fails loudly
-      ;; if a later edit to the cond above makes it false.
-      (when (item-broken? prev)
-        (assert (not (eq? d sep))))
-      d)))
+    (cond ((> blanks 0)
+           (hard-breaks (if (item-broken? prev) blanks (+ blanks 1))))
+          ((item-broken? prev) empty-doc)
+          ((item-own-line? it) hard-nl)
+          (else
+           ;; The second of two guards on a comment swallowing the code after
+           ;; it. The first is that leaf-doc has no branch omitting the break;
+           ;; this one is that the ordinary separator -- the only outcome that
+           ;; can put something on the previous item's line -- is unreachable
+           ;; after an item that ended in one. It is true by construction, and
+           ;; it is written so that a later edit to this cond fails loudly.
+           ;;
+           ;; The test is on the branch rather than on the document it returns.
+           ;; Comparing documents was wrong: `hard-breaks 1` reduces to exactly
+           ;; `hard-nl`, which is also the separator between top-level forms, so
+           ;; a comment followed by one blank line tripped an assertion on
+           ;; perfectly good input.
+           (assert (not (item-broken? prev)))
+           sep))))
 
 ;; items must be non-empty.
 (define (join-items items sep tbl)
@@ -613,12 +674,12 @@
         (if datum
             (concat (leaf-doc marker) (node-doc datum tbl))
             (leaf-doc marker))
-        (let* ((head (make-item (list marker) 0 #f #f #f #t 'expression))
+        (let* ((head (make-item (list marker) 0 #f #f #f #t 'expression #f))
                (items (if datum
                           (append (cons head mid)
                                   (list (make-item (list datum) 0
                                                    (node-broken? datum)
-                                                   #f #f #t 'expression)))
+                                                   #f #f #t 'expression #f)))
                           (cons head mid))))
           (join-items items space tbl)))))
 

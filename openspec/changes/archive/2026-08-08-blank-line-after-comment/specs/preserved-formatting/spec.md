@@ -1,16 +1,4 @@
-# preserved-formatting Specification
-
-## Purpose
-
-The one thing pitch does not re-derive. Layout is reflowed from scratch, with
-blank-line runs as the single declared exception: at most one blank line inside a
-form, at most two between top-level forms, leading and trailing runs dropped, and
-the file ending with exactly one newline. Everything else a whitespace token
-holds -- indentation, runs of spaces, line breaks the layout did not itself
-choose -- is discarded. A preserved blank line is emitted as forced breaks, so a
-form containing one has no single-line layout at all; collapsing it would delete
-the blank line just preserved.
-## Requirements
+## MODIFIED Requirements
 
 ### Requirement: Blank-line runs survive, capped
 
@@ -76,63 +64,7 @@ whitespace leaf SHALL count as a blank line.
   form
 - **THEN** the output has two blank lines between them
 
-### Requirement: All other whitespace is discarded and re-derived
-
-Whitespace that does not represent a blank-line run SHALL contribute nothing to
-the output beyond the separators the layout derives. Original indentation, runs
-of spaces between elements, and line breaks that the layout does not itself
-choose SHALL NOT be reproduced.
-
-#### Scenario: Original indentation is discarded
-
-- **WHEN** a form written with idiosyncratic indentation is laid out and fits the
-  page width
-- **THEN** the output is that form on one line with single spaces between
-  elements
-
-#### Scenario: Runs of spaces collapse
-
-- **WHEN** the source `(a     b)` is laid out
-- **THEN** the output is `(a b)`
-
-#### Scenario: A line break that the layout does not choose is not reproduced
-
-- **WHEN** a short form written across three lines is laid out at a page width
-  that accommodates it
-- **THEN** the output is one line
-
-### Requirement: A preserved blank line removes the flat layout
-
-Where a blank line is preserved inside a compound node, that node SHALL have no
-single-line layout, because rendering it on one line would delete the blank line
-just preserved.
-
-#### Scenario: A form with an internal blank line does not collapse
-
-- **WHEN** a short form written with a blank line between its elements is laid
-  out at a page width that would accommodate it on one line
-- **THEN** the output still has the blank line
-- **AND** the form occupies more than one line
-
-### Requirement: Leading and trailing blank lines are dropped and the file ends with one newline
-
-Blank lines before the first element of the document and after the last SHALL be
-dropped. The output SHALL end with exactly one line ending.
-
-#### Scenario: Leading blank lines are removed
-
-- **WHEN** a source beginning with two blank lines is laid out
-- **THEN** the output begins with the first form
-
-#### Scenario: Trailing blank lines are removed
-
-- **WHEN** a source ending with several blank lines is laid out
-- **THEN** the output ends with the last form followed by exactly one line ending
-
-#### Scenario: A source with no final newline gains one
-
-- **WHEN** a source whose last character is not a line ending is laid out
-- **THEN** the output ends with exactly one line ending
+## ADDED Requirements
 
 ### Requirement: A preserved blank line is empty
 

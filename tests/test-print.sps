@@ -354,6 +354,43 @@
 
 (test-end)
 
+(test-begin "a blank line after a comment survives, and is empty")
+
+;; A line comment's token text carries the ending that terminated its own line,
+;; so every ending in the whitespace that follows is a blank line. Counting them
+;; as "endings less one" here is how this used to be dropped.
+(test-equal "; one\n\n; two\n" (fmt "; one\n\n; two\n" 80))
+(test-equal "; one\n\n(a)\n" (fmt "; one\n\n(a)\n" 80))
+(test-equal "(x ; c\n\n  b)" (fmt* "(x ; c\n\nb)\n" 80))
+
+;; Capped like any other run: two between top-level forms, one inside a form.
+(test-equal "; one\n\n\n(a)\n" (fmt "; one\n\n\n(a)\n" 80))
+(test-equal "; one\n\n\n(a)\n" (fmt "; one\n\n\n\n\n(a)\n" 80))
+(test-equal "(x ; c\n\n  b)" (fmt* "(x ; c\n\n\n\nb)\n" 80))
+
+;; No blank line where none was written. Two adjacent line comments have no
+;; whitespace token between them at all, so this is the case the count must not
+;; over-report.
+(test-equal "; one\n; two\n" (fmt "; one\n; two\n" 80))
+(test-equal "(x ; c\n  b)" (fmt* "(x ; c\nb)\n" 80))
+
+;; The blank line is empty. The resolver indents after every break, so the
+;; comment's own break -- the one that lands on the blank line -- is taken at
+;; indentation zero; otherwise the line holds the enclosing indentation as
+;; trailing whitespace and is not blank.
+(test-assert (not (contains? (fmt "(x ; c\n\nb)\n" 80) " \n")))
+(test-assert (not (contains? (fmt "(f (g (h ; c\n\nx)))\n" 80) " \n")))
+(test-assert (not (contains? (fmt "; c\n\n(a)\n" 80) " \n")))
+
+;; And a comment followed by exactly one blank line does not raise. `hard-breaks
+;; 1` reduces to `hard-nl`, which is also the separator between top-level forms,
+;; and the guard against a comment swallowing following code used to compare the
+;; two documents rather than the branch that produced them.
+(test-assert (not (raises? (lambda () (fmt "; one\n\n(a)\n" 80)))))
+(test-assert (not (raises? (lambda () (fmt "(a ; c\n\nb)\n" 80)))))
+
+(test-end)
+
 (test-begin "everything else is re-derived")
 
 ;; Original indentation and runs of spaces are discarded.
