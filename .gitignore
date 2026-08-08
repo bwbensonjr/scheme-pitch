@@ -1,1 +1,3 @@
 *~
+# The wrapper embeds this checkout's absolute paths; `make bin/pitch` writes it.
+bin/
