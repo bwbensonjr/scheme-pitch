@@ -71,16 +71,29 @@ Pitch layers four, and **every one re-reads the output text** — comparing an
 in-memory tree against itself is vacuous and would pass regardless of what the
 printer did.
 
-| Layer | Check |
-|---|---|
-| 0 | **Round-trip.** With formatting disabled, concatenating the CST reproduces the input byte for byte. |
-| 1 | **Token equivalence.** Re-lex the output; compare token sequences with whitespace filtered out and comments retained in order. Primary check. |
-| 2 | **Datum equivalence.** Via pitch's own `cst->datum`. An independent code path from layer 1. |
-| 3 | **Idempotence.** `pitch(pitch(x)) == pitch(x)`. |
+| Layer | Check | Status |
+|---|---|---|
+| 0 | **Round-trip.** With formatting disabled, concatenating the CST reproduces the input byte for byte. | shipped |
+| 1 | **Token equivalence.** Re-lex the output; compare token sequences with whitespace filtered out and comments retained in order. Primary check. | planned |
+| 2 | **Datum equivalence.** Via pitch's own `cst->datum`. An independent code path from layer 1. | shipped |
+| 3 | **Idempotence.** `pitch(pitch(x)) == pitch(x)`. | planned |
+
+Layers 0 and 2 are implemented and tested. Layer 2 is not yet wired end to end,
+because there is no printer and so no output to re-read; the check takes two
+source *texts* precisely so that whoever wires it up cannot pass the tree the
+printer walked.
+
+Because `cst->datum` produces ordinary host data, comparing two projections is
+`equal?`, which R6RS requires to terminate on circular arguments — so `#0=(a
+. #0#)` needs no comparator of pitch's own. `cst->datum` is also the only layer
+that can see defects structure cannot show: `(#1#)` and `#vu8(300)` both parse
+clean, and are reported there.
 
 Pitch does not use any host implementation's `read` at runtime — that would make
 the guarantee vary by platform. Host readers are used as *test* oracles only:
-CI differential-tests `cst->datum` against Chez, Chibi, and Gauche.
+CI differential-tests `cst->datum` against Chez today, and against Chibi and
+Gauche once the corpus harness exists. An oracle only covers what it accepts, so
+datum labels — which Chez's reader rejects — rest on written expectations.
 
 ### Declared normalizations
 
@@ -113,6 +126,9 @@ a magic comment override. Pitch never silently guesses on ambiguous input.
 src/pitch/reader.sls     derived lossless reader (see header for changes)
 src/pitch/cst.sls        CST node types and cst->text
 src/pitch/parse.sls      tokenizing and parsing, with diagnostics
+src/pitch/diagnostic.sls one defect, anchored to a token; shared vocabulary
+src/pitch/datum.sls      cst->datum, the projection to host Scheme data
+src/pitch/check.sls      layer 2, datum equivalence
 vendor/laesare/          pristine upstream copy, never edited
 tests/                   regression baseline plus pitch's own tests
 docs/DESIGN.md           design decisions and open questions
@@ -134,7 +150,8 @@ make vendor-verify    # confirm vendor/ has not been edited
 `tests/test-reader.sps` is laesare's own suite, ported only far enough to run
 against `(pitch reader)`; it is the evidence that the vendored lexical analysis
 still behaves identically. `tests/test-recording.sps` covers what pitch adds to
-the reader, and `tests/test-cst.sps` covers the CST layer.
+the reader, `tests/test-cst.sps` the CST layer, and `tests/test-datum.sps` the
+datum projection and layer 2.
 
 See [`vendor/laesare/VENDOR.md`](vendor/laesare/VENDOR.md) for the pin and the
 refresh procedure.

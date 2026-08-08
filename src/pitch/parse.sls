@@ -31,40 +31,21 @@
   (export
     tokenize
     parse-tokens parse-source
+    ;; Re-exported from (pitch diagnostic), where the record now lives, so
+    ;; callers that only parse need not know about a second library.
     diagnostic? diagnostic-message diagnostic-token
     diagnostic-line diagnostic-column)
   (import
     (rnrs base (6))
     (rnrs control (6))
     (rnrs lists (6))
-    (rnrs records syntactic (6))
     (rnrs conditions (6))
     (rnrs exceptions (6))
-    (rnrs sorting (6))
     (only (rnrs io ports (6)) open-string-input-port)
     (pitch cst)
+    (pitch diagnostic)
     (only (pitch reader)
-          make-reader get-token
-          token-kind token-start token-start-line token-start-column
-          reader-tolerant?-set!))
-
-;;; Diagnostics
-
-(define-record-type diagnostic
-  (fields message token)
-  (sealed #t) (opaque #f)
-  (nongenerative diagnostic-v0-1f852e10-4345-44ca-b2df-b8bb8df8fced))
-
-(define (diagnostic-line d) (token-start-line (diagnostic-token d)))
-(define (diagnostic-column d) (token-start-column (diagnostic-token d)))
-
-;; Source order. Every diagnostic is anchored to a token, and token start
-;; offsets are strictly increasing, so this is a total order.
-(define (sort-diagnostics ds)
-  (list-sort (lambda (a b)
-               (< (token-start (diagnostic-token a))
-                  (token-start (diagnostic-token b))))
-             ds))
+          make-reader get-token token-kind reader-tolerant?-set!))
 
 ;;; Tokenizing
 

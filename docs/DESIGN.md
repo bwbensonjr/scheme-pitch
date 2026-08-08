@@ -62,16 +62,78 @@ independent implementations agreeing is strong evidence the reader is
 right, and it validates the reader without shipping a dependency on
 it.
 
+**Status.** Chez is wired up and every in-repo source file matches its `read`
+datum for datum. Chibi and Gauche are not installed; the multi-implementation
+matrix belongs to the CI and corpus work in §7.
+
+The bound worth remembering: **an oracle covers only what it accepts.** Chez's
+`read` rejects datum labels and `#u8(`, so label resolution — the most intricate
+part of the projection, and the only part that mutates — gets no oracle coverage
+at all and rests entirely on written expectations. A green differential run is
+not full coverage, and the tests say so where a reader will see it.
+
 ### Comparator details
 
 Comment *attachment* necessarily changes — that is what formatting
 is. Comment *order* must not. Compare the comment subsequence in order; do not
 compare positions.
 
-The datum comparator must terminate on cyclic structure. `#0=(a
-. #0#)` is legal input. R6RS and R7RS both require `equal?` to
-terminate on circular arguments, but a hand-written comparator over
-our own representation will not unless it is written to.
+The datum comparator must terminate on cyclic structure. `#0=(a . #0#)` is legal
+input.
+
+**Settled: `cst->datum` produces host Scheme data, so the comparator is
+`equal?`.** R6RS requires `equal?` to terminate on circular arguments, so
+choosing host data moves the obligation from us onto the implementation. This
+was measured on Chez 10.4.1 before committing to it: two structurally identical
+cyclic lists compare `#t`, two cyclic lists differing in one element compare
+`#f`, and two identical cyclic vectors compare `#t` — all terminating.
+
+The earlier concern here — that a hand-written comparator over our own
+representation will not terminate unless written to — is real but conditional on
+inventing a representation. It was the stated reason for deferring layer 2 out
+of the CST change, and it does not survive the decision to use host data. A
+comparator that must be written to terminate on cycles is exactly the kind of
+rarely-exercised code a *checking* layer must not contain, since a check nobody
+trusts is worse than no check.
+
+`datum=?` exists as a named wrapper over `equal?` so a future divergence has
+somewhere to live. Nothing motivates one today.
+
+Numbers compare by `eqv?`, so exactness is significant: `1` and `1.0` are not
+equivalent, which is wanted. `0.0` and `-0.0` are also distinguished on Chez,
+and `+nan.0` equals itself. These are recorded by test rather than reasoned
+about; layer 2 needs only that both sides of a comparison are treated alike.
+
+### Layer 2 finds what structure cannot show
+
+Beyond being an independent code path, `cst->datum` is the only layer that can
+see a class of real defect. The parser knows about brackets; it does not resolve
+datum labels or check that a bytevector element is an octet. Both `(#1#)` and
+`#vu8(300)` parse completely clean.
+
+These surface as diagnostics on the same channel the parser uses — an
+unresolvable reference, a duplicate label, a non-octet bytevector element, and a
+reference inside a bytevector, where there is no object slot to patch. A caller
+merges the two lists, so cleanliness stays one question with one answer.
+
+The governing rule: **a datum returned with a non-empty diagnostics list must not
+be trusted**. That is what licenses the projection to omit what it cannot
+represent instead of inventing a placeholder that would compare unequal to
+everything.
+
+### Open questions on the checking layers
+
+- Whether `datum=?` should ever diverge from `equal?`. The wrapper exists so the
+  answer can change without a spec change; nothing motivates one now.
+- Whether provenance from a datum back to the CST node that produced it is
+  wanted, so a failed check can report *where* two data diverged rather than only
+  that they do. Deferred until a printer exists to produce real mismatches.
+- Whether the layer 2 check should return the first differing subtree rather than
+  a boolean. Same dependency: worth designing against real failures.
+- Layer 2 is not wired end to end, because there is no printer and so no output
+  to re-read. The mechanism and its tests exist; connecting them is the
+  formatter's work, and the requirement that the check take *texts* rather than
+  trees is what will keep that wiring honest.
 
 ### Declared normalizations
 
