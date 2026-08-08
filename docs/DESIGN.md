@@ -502,6 +502,12 @@ Note that SRFI 272 cannot be the *engine* — it is a datum printer, and it
 explicitly leaves the layout algorithm unspecified, which destroys the one
 property pitch sells. Only the grammar is borrowed.
 
+**Settled: the grammar ships, and neither the registry nor the magic comment
+does.** `(pitch style)` reads the notation, validates it, and holds three tables.
+The registry API and `;; * pp-styles:` are both configuration, and `README.md`
+fixes the configuration surface at width and dialect; the grammar remaining the
+on-disk format keeps a loader additive whenever one is argued for.
+
 ### Why a table is needed at all
 
 Layout cannot be derived from structure, because structurally identical forms
@@ -536,6 +542,50 @@ SRFI 272's terminals cover the same six shapes declaratively:
 literals-clause · `dc*`/`ec*`/`fc*`/`lc*` lists of those · `body` indented
 expression list · `fill` line-filled expression list · `i?` optional identifier
 
+### What a terminal means, which SRFI 272 does not say
+
+**Settled.** SRFI 272 describes its terminals in terms of *printing* — "print as
+identifier", "print as literal" — because it uses them to colour and classify.
+What each one denotes as a document is pitch's decision, and it collapses onto
+two orthogonal facts.
+
+**Whether the subform is code or data.** `e`, and every element of a `body` or
+`fill` tail, is an expression: laid out by the ordinary rules, so a list among
+them consults the table for its own head. Every other terminal names data, and
+data is never looked up.
+
+That is the load-bearing half. `(syntax-rules (let) ...)` has a literals list
+whose head is the symbol `let`; `(let ((if 1)) ...)` has a binding whose head is
+the symbol `if`. Laying either out as the form it spells is a visible defect, and
+the terminal in that position is exactly what says it is not one. It is also why
+`ec*` is not a synonym for `body` even though both give each element a line:
+`body` looks its elements up and `ec*` refuses to.
+
+**What the subform's own shape is.** `i` and `d` impose nothing. `f`, `l` and `h`
+name lists of names or literals and are *filled*. A clause terminal says the
+element is a list read as `(first . body)` whose first element takes the style
+`d`, `e`, `f` or `l`. `fc` and `lc` therefore compile to the same descriptor —
+formals and literals are both filled, and nothing further distinguishes them at
+the layout level. That is recorded rather than hidden: pretending they differ
+would mean two code paths to keep agreeing.
+
+Eleven terminals, three element styles. This is the "183 names collapse to about
+six shapes" observation made precise enough to implement.
+
+**A matched style denotes exactly two layouts.** The head and every slot share
+the opening line; the tail goes beneath at the body indent; the whole is grouped,
+so it is all-flat or fully-broken and nothing between. Worth stating because the
+generic shape offers three and needs an argument that two of them can never tie
+(§6). A styled form needs no such argument — its two candidates differ in height
+*and* in width — so adding an entry removes work from the cost objective rather
+than adding a tie for it to break. Measured: `make test` got faster, not slower.
+
+**A clause introduces no rendering of its own.** It is the generic shape with its
+first element as the head, which is what Emacs and `raco fmt` both produce. The
+alternative — treating a clause as a zero-slot styled form, indenting its body
+from the clause's own delimiter — was rejected on familiarity, and it would have
+cost a second emitter for no gain.
+
 ### Starter table
 
 Neither existing table is a usable corpus: scmindent's 38 names are Common Lisp,
@@ -543,42 +593,64 @@ and roughly 60% of `raco fmt`'s 183 are Racket-specific. But the R7RS-small core
 is finite — about 35 syntactic keywords — so this is an afternoon, not a long
 tail. The long tail is per-dialect library macros.
 
+**Shipped**, in `src/pitch/style.sls`, split into a shared core and the two
+dialect tables:
+
 ```scheme
-;; binding
-(define             (_ h . body))
-(define-values      (_ f . body))
-(define-syntax      (_ i . body))
-(define-record-type (_ i f i . body))   ; R7RS shape; judgment call
-(lambda             (_ f . body))
-(case-lambda        (_ . fc*))
-(let                (_ i? fc* . body))  ; i? absorbs named let
-(let* letrec letrec* let-values let*-values
- let-syntax letrec-syntax parameterize
-                    (_ fc* . body))
-;; control
-(if                 (_ . body))
-(when unless        (_ e . body))
-(cond               (_ . ec*))
-(case               (_ e . lc*))
-(and or             (_ . fill))
-(begin delay delay-force (_ . body))
-(do                 (_ fc* ec . body))
-(guard              (_ (f . ec*) . body))
-(set!               (_ i . body))
-;; macro / library
-(syntax-rules       (_ l . dc*))        ; judgment call
-(define-library     (_ d . body))
-(import export      (_ . body))         ; taste: body vs fill
-(cond-expand        (_ . ec*))
-;; R6RS additions
-(library            (_ d . body))
-(syntax-case        (_ e l . dc*))      ; judgment call
-(with-syntax        (_ fc* . body))
-(assert             (_ . body))
+;; core -- identical in both standards
+(define                 (_ h . body))
+(define-syntax          (_ i . body))
+(lambda                 (_ f . body))
+(case-lambda            (_ . fc*))
+(let                    (_ i? fc* . body))   ; i? absorbs named let
+(let* letrec letrec* let-values let*-values let-syntax letrec-syntax
+                        (_ fc* . body))
+(when unless            (_ e . body))
+(cond                   (_ . ec*))
+(case                   (_ e . lc*))
+(begin                  (_ . body))
+(do                     (_ fc* ec . body))
+(guard                  (_ (i . ec*) . body))
+(set!                   (_ i . body))
+(syntax-rules           (_ l . dc*))
+(import                 (_ . body))
+(export                 (_ . fill))
+;; r7rs
+(define-values          (_ f . body))
+(define-record-type     (_ i h i . body))
+(parameterize           (_ fc* . body))
+(delay delay-force make-promise (_ . body))
+(define-library         (_ d . body))
+(cond-expand            (_ . ec*))
+;; r6rs
+(define-record-type     (_ i . body))
+(library                (_ d . body))
+(syntax-case            (_ e l . dc*))
+(with-syntax            (_ fc* . body))
+(assert                 (_ . body))
 ```
 
-Entries marked as judgment calls are the taste decisions the style guide has to
-settle; `import`'s one-per-line-versus-filled is another.
+Four entries in the draft above this one were judgment calls, and all four are
+now settled.
+
+**`if` gets no entry, and neither do `and` and `or`.** The draft had
+`(if (_ . body))`, which puts the test on its own line beneath the keyword. What
+everyone writes is the test on the opening line with the branches aligned under
+it — precisely the generic shape. Leaving `if` out is therefore the correct
+entry rather than a gap, and it makes this section's own illustration come out as
+drawn. `and` and `or` were drafted as `fill`, which packs unrelated predicates
+onto shared lines; the generic aligned shape reads better, and there is no reason
+to spend an entry making output worse.
+
+**`import` is a body and `export` is a fill**, which the draft left open as
+taste. Settled by looking at what this repository already contains: every library
+here writes its import list one clause per line and its export list packed
+several names per line, because an import clause is a structure worth scanning
+vertically and an export is a name in a set. Choosing what the sources already do
+also means the first run of pitch over pitch does not churn them.
+
+**`define-record-type` is absent from the core**, so the default dialect degrades
+it rather than guessing — see below.
 
 ### `define-record-type`
 
@@ -592,9 +664,25 @@ dialect-parameterized rather than a single union map:
 (define-record-type point (fields (immutable x) (mutable y)) (protocol ...) (parent ...))
 ```
 
-Same head symbol, incompatible shapes — `(_ i f i . body)` versus `(_ i . dc*)`.
+Same head symbol, incompatible shapes — `(_ i h i . body)` versus `(_ i . body)`.
 It appears to be the only such collision in the core of either standard, but one
 is enough to settle the architecture.
+
+**Settled: three tables, and a dialect argument that selects one.** The core is
+the entries identical in both standards; each dialect table is the core plus its
+own, so a shared entry is compiled once and is literally the same descriptor
+reachable from both. `cst->document` and `format-source` take an optional dialect
+defaulting to `common`, which selects the core — where the colliding head has no
+entry and therefore degrades. That is the degradation path doing exactly the job
+it exists for, rather than a union table quietly rendering one dialect's form
+under the other's rule.
+
+A dialect at this layer selects a style table and nothing else. §4 defines it as
+a bundle of three, and the other two have nothing to configure yet: the reader is
+a permissive union by invariant, and the normalization list is empty. Introducing
+empty fields to honour a definition would be inventing structure ahead of its
+content. Selection — sniffing, `--dialect`, the magic-comment override — is still
+unbuilt; the argument exists, choosing its value from a file does not.
 
 ### Graceful degradation
 
@@ -603,26 +691,75 @@ the non-matching part printed as a plain datum. Adopt this. A formatter
 encounters `(let)` and `(if)` with wrong arity constantly — in macro-generating
 code and in half-saved files — and must never crash or mangle.
 
-**Status: the degenerate case ships first, and is currently the only case.**
-`(pitch print)` lays out every compound by one generic shape and consults no head
-symbol at all, so `cond` and `let` come out looking wrong today. That is expected
-rather than a defect: the generic shape is what a form no table matches must fall
-back to, so it has to exist and be correct regardless, and building it first
-means the table is a lookup rather than a rewrite. **Nobody should read pitch's
-current output as pitch's intended style.**
+**Status: shipped, and the fallback paths are enumerated rather than implied.**
+The generic shape is the universal fallback, which is why it had to exist and be
+correct before the table did. A form degrades when its head is not an identifier
+leaf or has no entry, when it has fewer elements than the style has required
+slots, when a slot requiring a list gets something else, when the list is
+improper, or when a comment has forced a break inside the region a style requires
+to be on one line.
 
-The seam is one function, `compound-shape`, which today ignores its argument.
-When the table arrives it looks up the head there and returns a richer
-descriptor; no other function in the printer may examine a head. That is
-`CLAUDE.md`'s "style tables are data, not code" made checkable — the question
-"does pitch branch on a head symbol anywhere it should not" has a one-function
-answer.
+That last one is the only new mechanism, and it reuses machinery rather than
+reasoning afresh: the separator between two items is a plain space exactly when
+nothing forced a break, so the same `gap` the printer already used answers it. A
+style therefore never moves a comment and never loses one — it chooses among
+layouts of an item sequence the comment-placement rules already built. Moving a
+comment to make a style fit is what layer 1 refuses.
+
+The seam is one function, `compound-shape`. It reads the head — as the token's
+*value*, so `|cond|` and, under `#!fold-case`, `COND` take the shape they mean —
+looks it up in the dialect's table, and returns a descriptor. No other function
+in the printer may examine a head. That is `CLAUDE.md`'s "style tables are data,
+not code" made checkable rather than aspirational, and the check is structural at
+a second level too: `(pitch style)` imports neither the CST, the document algebra
+nor the reader, so a table cannot contain a document or a procedure because the
+library that defines tables cannot name one.
+
+Reading a token's value widens what the translation may look at, and the widening
+is narrow: recorded offsets, lines and columns stay forbidden, comment
+classification still comes from whitespace text, and every character emitted
+still comes from `token-text`. A value may select whitespace, which is the one
+thing pitch is allowed to change.
 
 ### Numeric knobs
 
 SRFI 272's `pp-tab` (body indent relative to the keyword) and
 `pp-max-tab` (cap on the extra offset short keywords like `if` induce), plus
 width. Plausibly the entire numeric configuration surface.
+
+**Settled: `pp-tab` is 2 and is measured from the opening delimiter, and
+`pp-max-tab` is not implemented.** SRFI 272 measures from the start of the form's
+keyword, which with the keyword one column right of the delimiter would put a
+body three columns in — what nothing in either community writes. Measuring from
+the delimiter gives the two columns Emacs and `raco fmt` produce, and it is what
+the hanging shape already did, so neither the constant nor the `nest` changed.
+
+`pp-max-tab` exists to cap the rightward drift a long keyword causes when a body
+is offset from the keyword rather than from the delimiter. There is no such drift
+here, so the knob has no referent. Both stay constants either way: `README.md`
+fixes the configuration surface at width and dialect.
+
+### Open questions on style tables
+
+- Whether a quoted list should fill. `'(1 2 3 ... 100)` one element per line is
+  nobody's intent, but the fact that makes it data is the enclosing `quote`
+  prefix rather than its own head, so the rule is contextual and does not fit a
+  head-keyed table. Bytevectors are decided the other way and do fill, because
+  their elements are octets and no judgment is involved. Vectors do not, because
+  their elements can be anything.
+- Whether data suppression should be deep. Today `l` suppresses lookup for the
+  literals list itself and its children are laid out normally, so a
+  `syntax-rules` *pattern* containing something that spells `let` is still styled
+  as a `let`. Deep suppression means threading a data context through the
+  translation, which is real complexity for a benefit real input has not yet
+  demonstrated.
+- Whether the dialect default should become `r7rs` or stay `common` once content
+  sniffing exists and a file's dialect is usually known.
+- Whether the long tail of per-dialect library macros is worth chasing, and by
+  what evidence. `raco fmt` reached 183 entries; this table is 30 or so, and the
+  corpus work is what should say which additions earn their place.
+- Whether an in-file `;; * pp-styles:` comment ever ships. It is the community
+  precedent for per-file style overrides and it is also configuration growth.
 
 ## 6. Layout engine
 
