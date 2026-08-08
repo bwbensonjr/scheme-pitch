@@ -186,18 +186,30 @@ everything.
 - Whether a comment may ever move across a code token. Layer 1 forbids it. If
   the layout engine needs the freedom, that needs an argument rather than a
   quietly weaker comparator.
-- Whether the combined runner should grow layers 0 and 3, or whether the
-  formatter's change should define its own pipeline and leave the runner as the
-  two-text pair. Round-trip compares a tree against the input it was parsed
-  from rather than two texts, so it does not share the signature; idempotence
-  needs the formatter run twice.
 - Whether layer 1 should report *all* differences rather than the first. The
   first is what a human fixes; a full diff may be more useful across a corpus
   run, which is the CI change's problem.
-- Layers 1 and 2 are not wired end to end, because there is no printer and so no
-  output to re-read. The mechanisms and their tests exist; connecting them is the
-  formatter's work, and the requirement that the checks take *texts* rather than
-  trees is what will keep that wiring honest.
+
+**Settled: the formatter's pipeline owns layers 0 and 3, and the runner stays the
+two-text pair.** `format-source` in `(pitch format)` tokenizes, parses,
+translates, lays out, and then runs `check-output` over the input text and the
+text it just produced. Round-trip compares a tree against the input it was parsed
+from rather than two texts, and idempotence needs the formatter run twice, so
+neither shares the runner's signature; both belong to the thing that has a
+formatter to run. Layer 3 is asserted in `tests/test-format.sps` over
+hand-written cases at four widths and over every one of pitch's own source files.
+
+**The wiring is done, and it is not vacuous.** The check is handed the string
+`layout` returned, and `(pitch format)` has no way to hand it anything else,
+because `check-output` does not accept a tree. `tests/test-format.sps` takes the
+pipeline's own real output and shows that the same check fails on a mutation of
+it — a deleted comment, a flipped bracket, an expanded abbreviation, a respelled
+numeric lexeme. A check nobody has seen fail is one nobody should trust.
+
+**Output that fails a check is not returned at all.** `format-source` reports the
+failing layer and returns no text. Returning unverified output under any status
+invites a caller to write it to a file, which is the one failure the whole
+apparatus exists to prevent.
 
 ### Declared normalizations
 
@@ -207,11 +219,36 @@ This makes layer 1 plain equality with no modulo clause, and lets us claim
 "pitch changes only whitespace" without qualification. Every future
 normalization must argue its way onto a short, visible list.
 
+**The list stayed empty, and one input is refused to keep it that way.** The
+layout engine renders every break as a linefeed. Between tokens that is
+harmless — those endings are whitespace, which the formatter re-derives. Inside a
+token it is not: a CRLF within a multi-line string literal or a `#| |#` block is
+part of a text layer 1 compares, so emitting it as a linefeed would change that
+text. `format-source` screens for an interior ending other than a linefeed and
+refuses the source, rather than normalizing it onto this list. A CRLF file with
+no multi-line token formats normally.
+
+The refusal can be lifted by teaching `(pitch doc)` which ending to render, which
+is a change to the algebra and wants its own proposal.
+
 ## 2. Preserved formatting
 
 Blank-line counts survive: at most one consecutive blank line
 inside a form, at most two between top-level forms. (Black's rule, and the
 behavior `raco fmt` exposes as `--max-blank-lines`.)
+
+**Settled and implemented.** A whitespace leaf represents its line-ending count
+less one blank lines, capped by where it sits. Leading and trailing blank lines
+are dropped and a formatted file ends with exactly one newline. Everything else
+in a whitespace leaf is discarded and re-derived.
+
+Two consequences worth stating, because both are the kind of thing that looks
+like a bug when first seen. A preserved blank line is emitted as forced breaks,
+so a form containing one has no single-line layout at all — which is right, since
+collapsing it would delete the blank line just preserved. And the break that
+*opens* a blank line is taken at indentation zero, because the resolver indents
+after every break and a blank line holding the enclosing indentation as trailing
+whitespace is not blank.
 
 **Open.** The `; fmt: off` / `; fmt: on` escape hatch: syntax, scope (line,
 form, region), and whether it exists at all in v1. SRFI 272's in-file
@@ -566,6 +603,21 @@ the non-matching part printed as a plain datum. Adopt this. A formatter
 encounters `(let)` and `(if)` with wrong arity constantly — in macro-generating
 code and in half-saved files — and must never crash or mangle.
 
+**Status: the degenerate case ships first, and is currently the only case.**
+`(pitch print)` lays out every compound by one generic shape and consults no head
+symbol at all, so `cond` and `let` come out looking wrong today. That is expected
+rather than a defect: the generic shape is what a form no table matches must fall
+back to, so it has to exist and be correct regardless, and building it first
+means the table is a lookup rather than a rewrite. **Nobody should read pitch's
+current output as pitch's intended style.**
+
+The seam is one function, `compound-shape`, which today ignores its argument.
+When the table arrives it looks up the head there and returns a richer
+descriptor; no other function in the printer may examine a head. That is
+`CLAUDE.md`'s "style tables are data, not code" made checkable — the question
+"does pitch branch on a head symbol anywhere it should not" has a one-function
+answer.
+
 ### Numeric knobs
 
 SRFI 272's `pp-tab` (body indent relative to the keyword) and
@@ -654,9 +706,19 @@ cost factory unable to leak into a layout under another.
 **The shipped cost factory is the reference's, not pitch's.** Squared overflow
 past the page width, then line count, compared lexicographically. It ships
 because the paper specifies it and the oracle needs both sides to agree on one
-objective. The dedented-closer reward and the rest of pitch's taste need real
-Scheme documents to tune against, and there are none until the CST-to-document
-translation exists.
+objective. The dedented-closer reward and the rest of pitch's taste still want
+tuning against a corpus, which is the corpus change's work; the translation that
+produces real Scheme documents to tune *with* now exists.
+
+That objective's shape is load-bearing in one place worth recording. The
+translation offers each compound three layouts — flat, aligned, hanging — and
+hanging is aligned plus one break and never wider, so it is always exactly one
+line taller. Under an objective ranking overflow before height, hanging is
+therefore chosen only when it strictly reduces overflow, and the two never tie
+except where they render identically. That is what makes the choice deterministic
+without the printer expressing a preference through `cost` — which it must not
+do, since a cost is a value in the factory's own representation and building one
+would couple the translation to a single factory.
 
 A structural invariant checked at print time,
 not inferred: **a line comment token must always be followed by a line break.**
@@ -671,13 +733,20 @@ and two tokens vanish from the sequence. That is a backstop, not a substitute.
 The assertion still belongs in the printer, where it can name the form being
 emitted; layer 1 can only report that the output no longer matches.
 
-**The assertion is still owed.** `text` refusing a line ending removes the
-accidental path to this bug — a printer can no longer reach it by handing a
-comment's token text straight to `text`, because that raises. It does not remove
-the deliberate path: a printer may still emit a comment and then choose not to
-follow it with a break. So the engine makes the mistake hard to make by
-accident, and the printer's own assertion is what makes it impossible. Two
-independent guards on the same failure, which is the right number for this one.
+**Settled: the assertion is discharged, and by construction rather than by an
+`assert`.** `(pitch print)` emits a line comment as its text minus one trailing
+ending followed by `hard-nl`, in a single function with no branch that omits the
+break — including for a comment ending the source with no terminator, which gets
+one anyway, and which is also what makes a formatted file end in a newline. The
+second guard is at the item join, which emits no separator after an element
+ending in a forced break; it is true by construction today, and it is written as
+an assertion so that a later edit making it false fails loudly rather than
+quietly.
+
+A third guard fell out of the algebra for free. `hard-nl` fails when flattened,
+so a form containing a line comment denotes *no* single-line layout at any page
+width. The most dangerous bug a Lisp formatter can have is not merely prohibited
+here; it is unrepresentable.
 
 
 ## 7. Corpora and CI

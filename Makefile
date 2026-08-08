@@ -22,9 +22,10 @@ help:
 # ported to (pitch reader) and otherwise unmodified. test-recording.sps covers
 # what pitch adds to the reader, test-cst.sps the CST layer, test-datum.sps the
 # datum projection, test-check.sps the output safety checks, test-doc.sps the
-# document algebra, and test-layout.sps the layout engine. Must be run from the
-# repo root; the read-files, round-trip-files and differential-oracle tests open
-# relative paths.
+# document algebra, test-layout.sps the layout engine, test-print.sps the
+# CST-to-document translation, and test-format.sps the end-to-end pipeline.
+# Must be run from the repo root; the read-files, round-trip-files,
+# differential-oracle and corpus tests open relative paths.
 #
 # This target runs on Chez alone. The layout engine's differential oracle needs
 # Racket and lives in oracle-layout, deliberately outside `test`.
@@ -36,6 +37,8 @@ test:
 	@$(CHEZ) --libdirs $(LIBDIRS) --program tests/test-check.sps
 	@$(CHEZ) --libdirs $(LIBDIRS) --program tests/test-doc.sps
 	@$(CHEZ) --libdirs $(LIBDIRS) --program tests/test-layout.sps
+	@$(CHEZ) --libdirs $(LIBDIRS) --program tests/test-print.sps
+	@$(CHEZ) --libdirs $(LIBDIRS) --program tests/test-format.sps
 
 # The layout engine is a port of sorawee/pretty-expressive. Written
 # expectations confirm the cases we thought of; only the original disagreeing

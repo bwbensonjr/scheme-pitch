@@ -47,6 +47,7 @@
     (pitch diagnostic)
     (pitch parse)
     (pitch datum)
+    (only (pitch lines) strip-final-line-ending)
     (only (pitch reader) token-kind token-text))
 
 ;;; Layer 1: token equivalence
@@ -63,22 +64,8 @@
 ;; Only comment and shebang tokens can end with a line ending; #| |# ends with
 ;; |#, #; ends with the elided datum, and #!r6rs ends with the directive name.
 ;; The endings recognized are the ones the reader's grammar counts, with CR+LF
-;; and CR+NEL counting as one.
-(define (trim-line-ending text)
-  (let ((n (string-length text)))
-    (if (= n 0)
-        text
-        (let ((last (string-ref text (- n 1))))
-          (cond
-            ((or (char=? last #\linefeed) (char=? last #\x85))
-             (if (and (>= n 2) (char=? (string-ref text (- n 2)) #\return))
-                 (substring text 0 (- n 2))
-                 (substring text 0 (- n 1))))
-            ((or (char=? last #\return)
-                 (char=? last #\x2028)
-                 (char=? last #\x2029))
-             (substring text 0 (- n 1)))
-            (else text))))))
+;; and CR+NEL counting as one -- (pitch lines) owns that set, shared with the
+;; layout algebra and the printer.
 
 ;; Kind and text, never position -- formatting changes line and column by
 ;; definition. Kind is not redundant with text: the reader's mode changes
@@ -88,8 +75,8 @@
 ;; import layer 2's weakness, since #xff and 255 share a value.
 (define (token=? a b)
   (and (eq? (token-kind a) (token-kind b))
-       (string=? (trim-line-ending (token-text a))
-                 (trim-line-ending (token-text b)))))
+       (string=? (strip-final-line-ending (token-text a))
+                 (strip-final-line-ending (token-text b)))))
 
 ;; Every non-whitespace token in source order: code tokens and comments in one
 ;; interleaved sequence, not two subsequences. Interleaving is what catches a

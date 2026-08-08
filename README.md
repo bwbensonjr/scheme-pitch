@@ -33,10 +33,15 @@ source text
   → lossless lexer          (derived from laesare; tokens carry exact source text)
   → token vector            (materialized, so lexer and parser are separable)
   → CST                     (trivia are first-class; concatenation reproduces input)
+  → document                (cst->document; where comment placement is decided)
   → cost-based optimal layout   (pretty-expressive / Πe style engine)
-  → per-form style table    (SRFI 272 style grammar as the on-disk format)
+  → safety checks           (the output is re-read and compared to the input)
   → formatted text
 ```
+
+The per-form style table — the SRFI 272 style grammar as the on-disk format —
+sits alongside `cst->document`, telling it which shape each form takes. It is
+the one stage not yet built; one generic shape stands in for it.
 
 In the CST, whitespace and comments are ordinary members of a node's child
 sequence rather than trivia attached to a neighbouring token, so concatenating a
@@ -58,11 +63,19 @@ which is where pitch's aesthetic preferences get encoded, rather than in ad-hoc
 line-breaking heuristics.
 
 That layout core is ported and shipped, as `(pitch doc)`, `(pitch cost)` and
-`(pitch layout)`. Nothing calls it yet: turning a CST into a document is the
-printer's work, and it is where comment placement — the actually hard problem —
-lives. The cost objective it ships with is the reference implementation's, not
-pitch's; the one encoding pitch's taste needs real Scheme documents to tune
-against.
+`(pitch layout)`, and `(pitch print)` now drives it: `cst->document` turns a tree
+into a document, and `(pitch format)` runs the whole pipeline from source text to
+formatted text. The cost objective it ships with is still the reference
+implementation's, not pitch's; the one encoding pitch's taste wants a corpus to
+tune against.
+
+**Every form is laid out by one generic shape.** There is no per-form style table
+yet, so `cond` and `let` come out looking wrong. That is the next change, and it
+is a lookup rather than a rewrite: the generic shape is what any form a table
+does not match has to fall back to, so it had to exist and be correct first, and
+the printer consults a single function that today ignores which form it is
+looking at. Nothing in the current output should be read as pitch's intended
+style.
 
 The port is checked against the original. `make oracle-layout` renders a corpus
 through both `(pitch layout)` and Racket's `pretty-expressive` and requires the
@@ -85,11 +98,18 @@ printer did.
 | 0 | **Round-trip.** With formatting disabled, concatenating the CST reproduces the input byte for byte. | shipped |
 | 1 | **Token equivalence.** Re-lex the output; compare token sequences with whitespace filtered out and comments retained in order. Primary check. | shipped |
 | 2 | **Datum equivalence.** Via pitch's own `cst->datum`. An independent code path from layer 1. | shipped |
-| 3 | **Idempotence.** `pitch(pitch(x)) == pitch(x)`. | planned |
+| 3 | **Idempotence.** `pitch(pitch(x)) == pitch(x)`. | shipped |
 
-Layers 1 and 2 are not yet wired end to end, because there is no printer and so
-no output to re-read. Both take two source *texts* precisely so that whoever
-wires them up cannot pass the tree the printer walked.
+All four are wired end to end. `format-source` hands the checks the string the
+layout engine returned, and it has no way to hand them anything else: they take
+two source *texts* and do not accept a tree. Output that fails a check is not
+returned at all — the status names the failing layer and the text is withheld,
+because returning output pitch could not verify invites a caller to write it to a
+file.
+
+The suite pins that the checks would notice. It takes the formatter's own real
+output and shows the same check failing on a mutation of it: a comment deleted, a
+bracket flipped, an abbreviation expanded, a numeric lexeme respelled.
 
 **Layer 1 is strictly stronger than layer 2**, and the suite pins the difference
 rather than asserting it: every one of these passes datum equivalence and fails
@@ -155,11 +175,14 @@ src/pitch/reader.sls     derived lossless reader (see header for changes)
 src/pitch/cst.sls        CST node types and cst->text
 src/pitch/parse.sls      tokenizing and parsing, with diagnostics
 src/pitch/diagnostic.sls one defect, anchored to a token; shared vocabulary
+src/pitch/lines.sls      what counts as a line ending, defined once
 src/pitch/datum.sls      cst->datum, the projection to host Scheme data
 src/pitch/check.sls      layers 1 and 2, and the combined runner
 src/pitch/doc.sls        the document algebra the layout engine resolves
 src/pitch/cost.sls       the cost factory interface and the default objective
 src/pitch/layout.sls     the Pi-e layout engine
+src/pitch/print.sls      cst->document: the translation, and comment placement
+src/pitch/format.sls     the end-to-end pipeline, and what it refuses
 vendor/laesare/          pristine upstream copy, never edited
 tests/                   regression baseline plus pitch's own tests
 tests/oracle/            one corpus, rendered by pitch and by pretty-expressive
@@ -185,7 +208,10 @@ against `(pitch reader)`; it is the evidence that the vendored lexical analysis
 still behaves identically. `tests/test-recording.sps` covers what pitch adds to
 the reader, `tests/test-cst.sps` the CST layer, `tests/test-datum.sps` the datum
 projection, `tests/test-check.sps` the safety checks, `tests/test-doc.sps` the
-document algebra, and `tests/test-layout.sps` the layout engine.
+document algebra, `tests/test-layout.sps` the layout engine,
+`tests/test-print.sps` the CST-to-document translation, and
+`tests/test-format.sps` the end-to-end pipeline — including idempotence over
+every one of pitch's own source files.
 
 See [`vendor/laesare/VENDOR.md`](vendor/laesare/VENDOR.md) for the pin and the
 refresh procedure.
