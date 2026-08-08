@@ -584,10 +584,79 @@ The cost factory is where black's aesthetic preferences get encoded — penalize
 overflow, penalize height, reward dedented closing delimiters — rather than in
 ad-hoc heuristics. This is the substitution point for style opinions.
 
-**Open.** `pretty-expressive` is Racket. Porting it to R6RS is a real subproject
-and should be scoped as its own OpenSpec proposal. Having Racket available (per
-`CLAUDE.md`) makes it possible to differential-test the port against the
-original on the same inputs.
+**Settled: the port is done.** The engine ships as three libraries: `(pitch doc)`
+for the document algebra, `(pitch cost)` for the cost factory, and
+`(pitch layout)` for the resolver. Nothing in them knows anything about Scheme —
+no tokens, no comments, no brackets, no dialects — so the layering invariant
+holds trivially: the engine cannot branch on a dialect because it cannot see one.
+
+The surface is the paper's: `text`, `newline`, `concat`, `alternatives`, `nest`,
+`align`, `reset`, `full`, `cost`, `fail`, plus `group`, `flatten`, `alt`, and
+five append families. `newline` shadows the one in `(rnrs io simple)`, which
+`(rnrs base)` does not export, so only a file doing console I/O ever notices —
+and R6RS reports that at import time rather than shadowing silently.
+
+Three things the reference has are deliberately absent. `special` passes a
+non-string through a Racket structured output port and has nothing to do here.
+Racket's parameter objects are replaced by `case-lambda` arities, so a layout
+depends on its arguments and nothing else. And the infix aliases (`<>`, `<$>`,
+`<+>`) are dropped as line noise in Scheme.
+
+**Failure and taint are different outcomes, and callers must be able to tell
+them apart.** A document with no layout at all — `fail`, or a `full` followed by
+text — raises. It does not get a best-effort rendering, because there is no
+principled one and inventing output is the repair pitch refuses everywhere else.
+A document whose every layout overflows the *computation width* renders normally
+but comes back with `tainted?` true: the text is complete and valid, and what
+has been withdrawn is only the claim that it is minimal.
+
+**`text` refuses a line ending, which the reference does not check.** Column
+arithmetic is the whole cost model, so a newline hidden inside a text mis-costs
+every measure downstream while still producing plausible output. The specific
+reason is better than the general one: a line comment's token text *includes* its
+terminating line ending, so a printer emitting `(text (token-text tok))` for a
+comment would build exactly the bug the paragraph below is about. Refusing the
+string forces the printer to split the terminator off and state what follows.
+The recognized endings are the reader's seven, shared with layer 1's trailing
+line-ending rule rather than defined a second time.
+
+### The oracle, and the one place we diverge
+
+`make oracle-layout` renders a corpus through both `(pitch layout)` and Racket's
+`pretty-expressive` and requires the text, the cost and the taint flag to agree.
+One file, `tests/oracle/documents.scm`, drives both sides, so a case cannot be
+added to one and forgotten on the other. It is not part of `make test`, which
+runs on Chez alone; a missing Racket is reported and skipped.
+
+The corpus reader refuses a file containing anything after its single list. That
+guard is not hypothetical: a stray paren once truncated the corpus, *both*
+drivers skipped the same trailing entries, and the diff passed on a corpus
+smaller than the file. An oracle that agrees about nothing agrees.
+
+**The reference's `flatten` has a bug, and pitch does not reproduce it.** It
+strips `align`, `nest` and `reset` and then maps over the child's children rather
+than recurring on the child, so a newline that is the *direct* child of one of
+those three comes back unflattened: `(flatten (align nl))` is a line break rather
+than a space, and `(flatten (align hard-nl))` is a line break rather than a
+failure. The consequence is that `(group (align d))` — the shape a Lisp printer
+uses constantly, "flat if it fits, else break and align under the head" — can
+emit a line break from its *flat* alternative. For a formatter whose entire
+promise is that it changes only whitespace, a break nobody authorized is not
+cosmetic. Fixed here; the shape is excluded from the oracle corpus, with the
+fixed behavior asserted directly in `tests/test-doc.sps` instead.
+
+Two smaller divergences are answer-preserving and recorded in the header of
+`src/pitch/layout.sls`: memo tables are external and per-call rather than stored
+on document nodes and cleared afterwards, and every internal node is memoized
+rather than every seventh. The first is what makes a measure computed under one
+cost factory unable to leak into a layout under another.
+
+**The shipped cost factory is the reference's, not pitch's.** Squared overflow
+past the page width, then line count, compared lexicographically. It ships
+because the paper specifies it and the oracle needs both sides to agree on one
+objective. The dedented-closer reward and the rest of pitch's taste need real
+Scheme documents to tune against, and there are none until the CST-to-document
+translation exists.
 
 A structural invariant checked at print time,
 not inferred: **a line comment token must always be followed by a line break.**
@@ -601,6 +670,14 @@ c⏎ b)` printed as `(a ; c b)` is caught, because the comment token swallows `b
 and two tokens vanish from the sequence. That is a backstop, not a substitute.
 The assertion still belongs in the printer, where it can name the form being
 emitted; layer 1 can only report that the output no longer matches.
+
+**The assertion is still owed.** `text` refusing a line ending removes the
+accidental path to this bug — a printer can no longer reach it by handing a
+comment's token text straight to `text`, because that raises. It does not remove
+the deliberate path: a printer may still emit a comment and then choose not to
+follow it with a break. So the engine makes the mistake hard to make by
+accident, and the printer's own assertion is what makes it impossible. Two
+independent guards on the same failure, which is the right number for this one.
 
 
 ## 7. Corpora and CI

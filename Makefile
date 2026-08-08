@@ -4,27 +4,68 @@ LAESARE_REPO  := ../laesare
 VENDOR_FILES  := reader.sls writer.sls LICENSE.txt
 
 CHEZ    ?= chez
+RACKET  ?= racket
 LIBDIRS := src:.
 
-.PHONY: help test vendor-diff vendor-verify
+ORACLE_OUT := $(shell mktemp -t pitch-layout)
+ORACLE_REF := $(shell mktemp -t pitch-layout-ref)
+
+.PHONY: help test oracle-layout vendor-diff vendor-verify
 
 help:
 	@echo "test           run the reader regression suite"
+	@echo "oracle-layout  diff the layout engine against Racket's pretty-expressive"
 	@echo "vendor-diff    show pitch's changes to laesare's reader"
 	@echo "vendor-verify  check vendor/laesare/ still matches $(LAESARE_TAG)"
 
 # test-reader.sps is the regression baseline: the vendored laesare suite,
 # ported to (pitch reader) and otherwise unmodified. test-recording.sps covers
 # what pitch adds to the reader, test-cst.sps the CST layer, test-datum.sps the
-# datum projection, and test-check.sps the output safety checks. Must be run
-# from the repo root; the read-files, round-trip-files and differential-oracle
-# tests open relative paths.
+# datum projection, test-check.sps the output safety checks, test-doc.sps the
+# document algebra, and test-layout.sps the layout engine. Must be run from the
+# repo root; the read-files, round-trip-files and differential-oracle tests open
+# relative paths.
+#
+# This target runs on Chez alone. The layout engine's differential oracle needs
+# Racket and lives in oracle-layout, deliberately outside `test`.
 test:
 	@$(CHEZ) --libdirs $(LIBDIRS) --program tests/test-reader.sps
 	@$(CHEZ) --libdirs $(LIBDIRS) --program tests/test-recording.sps
 	@$(CHEZ) --libdirs $(LIBDIRS) --program tests/test-cst.sps
 	@$(CHEZ) --libdirs $(LIBDIRS) --program tests/test-datum.sps
 	@$(CHEZ) --libdirs $(LIBDIRS) --program tests/test-check.sps
+	@$(CHEZ) --libdirs $(LIBDIRS) --program tests/test-doc.sps
+	@$(CHEZ) --libdirs $(LIBDIRS) --program tests/test-layout.sps
+
+# The layout engine is a port of sorawee/pretty-expressive. Written
+# expectations confirm the cases we thought of; only the original disagreeing
+# finds the ones we did not. Both sides render tests/oracle/documents.scm --
+# one corpus, so a case cannot be added to one side and forgotten on the other
+# -- and the rendered text, the cost and the taint flag must all agree.
+#
+# A missing Racket or a missing package is reported and skipped, not failed.
+# `make test` must pass without Racket, and a red target nobody can fix trains
+# people to ignore it.
+# One shell for the whole recipe: make gives each line its own, so a skip has
+# to be a branch rather than an early `exit 0`.
+oracle-layout:
+	@if ! command -v $(RACKET) >/dev/null 2>&1; then \
+	  echo "oracle-layout: no racket on PATH; skipping"; \
+	  echo "  install Racket, then: raco pkg install pretty-expressive"; \
+	elif ! $(RACKET) -l racket/base -e '(require pretty-expressive)' >/dev/null 2>&1; then \
+	  echo "oracle-layout: the pretty-expressive package is not installed; skipping"; \
+	  echo "  raco pkg install pretty-expressive"; \
+	else \
+	  set -e; \
+	  $(CHEZ) --libdirs $(LIBDIRS) --program tests/oracle/oracle.sps > $(ORACLE_OUT); \
+	  $(RACKET) tests/oracle/oracle.rkt > $(ORACLE_REF); \
+	  set +e; \
+	  if diff -u $(ORACLE_REF) $(ORACLE_OUT); then \
+	    echo "oracle-layout: $$(head -1 $(ORACLE_OUT)), all agree"; \
+	  else \
+	    echo "oracle-layout: FAILED (left: reference, right: pitch)"; exit 1; \
+	  fi; \
+	fi
 
 # The authoritative changeset: pristine upstream reader vs. pitch's derived one.
 # Exit status is ignored because a non-empty diff is the expected state.
