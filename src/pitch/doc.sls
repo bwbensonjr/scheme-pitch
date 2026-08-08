@@ -50,7 +50,7 @@
     text newline concat alternatives nest align reset full cost fail
 
     ;; derived
-    empty-doc nl break hard-nl alt flatten group
+    empty-doc nl break hard-nl alt flatten group verbatim
     u-append u-concat us-append us-concat v-append v-concat
     a-append a-concat as-append as-concat
     space lparen rparen lbracket rbracket
@@ -73,7 +73,8 @@
     (rnrs lists (6))
     (rnrs hashtables (6))
     (rnrs records syntactic (6))
-    (rnrs arithmetic bitwise (6)))
+    (rnrs arithmetic bitwise (6))
+    (only (pitch lines) line-ending-index line-ending-pieces))
 
 ;;; Representation
 
@@ -172,26 +173,10 @@
 
 ;;; text, and the line ending it refuses
 
-;; The five characters that begin a line ending in the reader's grammar. The
-;; grammar counts seven endings, but CR LF and CR NEL are two-character forms
-;; beginning with CR, so refusing these five refuses all seven. The set is
-;; deliberately the same one (pitch check) trims for token equivalence: two
-;; definitions of "line ending" in one codebase is a divergence waiting to
-;; happen, and this one would separate the losslessness guarantee from the
-;; layout engine.
-(define (line-ending-char? c)
-  (or (char=? c #\linefeed)
-      (char=? c #\return)
-      (char=? c #\x85)
-      (char=? c #\x2028)
-      (char=? c #\x2029)))
-
-(define (string-index-of-line-ending s)
-  (let ((n (string-length s)))
-    (let loop ((i 0))
-      (cond ((= i n) #f)
-            ((line-ending-char? (string-ref s i)) i)
-            (else (loop (+ i 1)))))))
+;; What counts as a line ending is (pitch lines)' business, shared with the
+;; token-equivalence check and the printer. Three copies of that set would be
+;; three things to keep in step, and the copy that drifts is always the one
+;; nothing else exercises.
 
 ;; A line ending inside a text is refused, not split and not repaired.
 ;;
@@ -208,8 +193,12 @@
 ;; string forces the printer to split the terminator off and say explicitly what
 ;; follows. That does not replace the assertion the printer still owes; it makes
 ;; the mistake impossible to make by accident.
+;;
+;; A caller that legitimately holds a string containing an ending -- a string
+;; literal written across lines, a block comment spanning lines -- uses
+;; `verbatim` below, which is the sanctioned way to say "emit this exactly".
 (define (text s)
-  (let ((i (string-index-of-line-ending s)))
+  (let ((i (line-ending-index s)))
     (when i
       (assertion-violation 'text
         "a document text may not contain a line ending; split it and emit an explicit break"
@@ -372,6 +361,43 @@
 
 (define (group d)
   (alternatives d (flatten d)))
+
+;;; verbatim
+;;
+;; `text` refuses a line ending, which is right, but a caller may hold a string
+;; that legally contains one: in pitch's case a string literal written across
+;; lines, a #| |# block spanning lines, or a #; eliding a datum written across
+;; lines. `verbatim` is the sanctioned way to emit such a string exactly.
+;;
+;; It lives here rather than in the caller because it is the sanctioned answer
+;; to a restriction this library imposes: `text` refuses, and `verbatim` is what
+;; it refuses in favour of. It knows nothing about Scheme, so it costs this
+;; library none of its independence.
+;;
+;; The breaks are hard and the whole thing sits under `reset`, so the
+;; continuation lines get no indentation at all. That is not a stylistic choice:
+;; indenting inside a string literal changes the value the literal denotes, and
+;; indenting inside a comment rewrites the comment's contents, which pitch never
+;; does. Both callers want the same thing, so there is nothing to parameterize.
+;;
+;; What it does not preserve: the resolver renders every break as a linefeed, so
+;; a string whose interior endings are CR, CRLF, NEL, LS or PS comes back with
+;; linefeeds. A caller for whom that is observable has to refuse the input; this
+;; library has no way to say "break with *these* characters".
+
+;; The join is written out rather than delegated to v-concat, which is defined
+;; further down: a forward reference would work, but reading order should not
+;; depend on knowing that.
+(define (verbatim s)
+  (let ((pieces (line-ending-pieces s)))
+    (if (null? (cdr pieces))
+        (text s)
+        (reset
+          (let loop ((d (text (car pieces))) (rest (cdr pieces)))
+            (if (null? rest)
+                d
+                (loop (concat d (concat hard-nl (text (car rest))))
+                      (cdr rest))))))))
 
 ;;; The append families
 ;;

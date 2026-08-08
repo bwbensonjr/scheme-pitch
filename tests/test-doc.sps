@@ -102,6 +102,59 @@
 
 (test-end)
 
+;;; verbatim is the way to emit a string that has one
+
+(test-begin "verbatim")
+
+;; With no ending it is exactly text.
+(test-equal "abc" (fmt (verbatim "abc") 80))
+(test-equal "" (fmt (verbatim "") 80))
+(test-assert (same? (verbatim "abc") (text "abc") 80))
+
+;; With one it renders on two lines.
+(test-equal "ab\ncd" (fmt (verbatim "ab\x000A;cd") 80))
+
+;; All seven endings split, and the two-character forms split once rather than
+;; twice -- three pieces would show up here as two breaks.
+(test-equal "a\nb" (fmt (verbatim "a\x000A;b") 80))
+(test-equal "a\nb" (fmt (verbatim "a\x000D;b") 80))
+(test-equal "a\nb" (fmt (verbatim "a\x000D;\x000A;b") 80))
+(test-equal "a\nb" (fmt (verbatim "a\x000D;\x0085;b") 80))
+(test-equal "a\nb" (fmt (verbatim "a\x0085;b") 80))
+(test-equal "a\nb" (fmt (verbatim "a\x2028;b") 80))
+(test-equal "a\nb" (fmt (verbatim "a\x2029;b") 80))
+
+;; An ending at either edge produces an empty piece rather than being dropped.
+(test-equal "\n" (fmt (verbatim "\x000A;") 80))
+(test-equal "abc\n" (fmt (verbatim "abc\x000A;") 80))
+(test-equal "\nabc" (fmt (verbatim "\x000A;abc") 80))
+
+;; No indentation is added to a continuation line. This is the whole point:
+;; indenting inside a string literal would change the value it denotes, and
+;; inside a comment it would rewrite the comment's contents.
+(test-equal "x\n    ab\n  cd"
+            (fmt (nest 4 (u-append (text "x") hard-nl (verbatim "ab\x000A;  cd"))) 80))
+(test-equal "xyab\ncd"
+            (fmt (u-append (text "xy") (align (verbatim "ab\x000A;cd"))) 80))
+(test-equal "x\n    ab\ncd"
+            (fmt (nest 4 (u-append (text "x") hard-nl (verbatim "ab\x000A;cd"))) 80))
+
+;; The characters between the endings are untouched -- no collapsing, no
+;; trimming, at either edge of a piece.
+(test-equal "a  b\n   c  " (fmt (verbatim "a  b\x000A;   c  ") 80))
+
+;; Its breaks are hard, so there is no flat alternative to choose. A group over
+;; it is the group's own argument.
+(test-equal "ab\ncd" (fmt (group (verbatim "ab\x000A;cd")) 80))
+(test-assert (no-layout? (flatten (verbatim "ab\x000A;cd"))))
+
+;; And a group over a document containing one cannot go flat either, which is
+;; what stops a multi-line token being folded onto one line.
+(test-equal "(a\nb)"
+            (fmt (group (u-append (text "(") (verbatim "a\x000A;b") (text ")"))) 80))
+
+(test-end)
+
 ;;; The smart constructors preserve meaning
 
 (test-begin "smart constructors preserve meaning")
