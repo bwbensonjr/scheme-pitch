@@ -24,6 +24,25 @@ Python. Supports R6RS and R7RS Scheme.
 - [`bwbensonjr/laesare`](https://github.com/bwbensonjr/laesare) - Our fork of `laesare` that captures the exact source substring.
 - [Chez Scheme](https://github.com/cisco/chezscheme) - Our preferred R6RS Scheme implementation.
 
+## Vendored code
+
+`vendor/laesare/` holds an unmodified copy of `laesare` at tag `v1.0.3`,
+kept alongside the derived reader at `src/pitch/reader.sls` so the changes
+are always visible:
+
+```
+make vendor-diff      # exact changeset against pristine upstream
+make vendor-verify    # confirm vendor/ has not been edited
+```
+
+See [`vendor/laesare/VENDOR.md`](vendor/laesare/VENDOR.md) for the pin and
+the refresh procedure.
+
+## License
+
+Pitch is MIT licensed; see [`LICENSE`](LICENSE). It incorporates MIT-licensed
+code from `laesare` by G. Weinholt - see [`NOTICE`](NOTICE).
+
 
 
 

@@ -1,0 +1,16 @@
+pitch
+Copyright © 2026 Brent Benson
+
+This product includes software developed as part of the laesare project.
+
+  laesare - an R6RS/R7RS lexer and reader
+  Copyright © 2017-2023 G. Weinholt
+  https://gitlab.com/weinholt/laesare
+  Licensed under the MIT License; see vendor/laesare/LICENSE.txt
+
+Unmodified copies of the laesare sources are kept under vendor/laesare/,
+pinned at tag v1.0.3 (commit 15a75835dca64319be607d9d5285ab2c1db9a003).
+
+src/pitch/reader.sls is a modified version of laesare's reader.sls. It
+retains the original copyright and permission notices, and its header
+records the changes made.
