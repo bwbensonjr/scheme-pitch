@@ -13,9 +13,36 @@
 ;; `make vendor-diff` to see the exact set of changes made here.
 ;;
 ;; Changes from upstream:
-;;   - Renamed the library from (laesare reader) to (pitch reader) so it
-;;     does not collide with an installed copy of laesare.
-;;   (Source-location recording is not implemented yet.)
+;;
+;;   - Renamed the library from (laesare reader) to (pitch reader) so it does
+;;     not collide with an installed copy of laesare.
+;;
+;;   - The reader records an absolute character offset and, while a get-token
+;;     call is in progress, the text of the token being read. Both are updated
+;;     in get-char, the single point where input is consumed.
+;;
+;;   - Upstream's get-token is now get-token*, unchanged apart from its name
+;;     and its internal recursive calls. The exported get-token is a wrapper
+;;     that brackets one outermost call and returns a token record of kind,
+;;     text, start, end and value. This is a BREAKING change for direct
+;;     callers of get-token; get-token* is exported for the old behavior.
+;;
+;;   - get-lexeme calls get-token*, so read-annotated, read-datum and
+;;     detect-scheme-file-type behave exactly as upstream and allocate no
+;;     recording state.
+;;
+;;   - get-char counts every line ending the RnRS grammar recognizes, not only
+;;     linefeed. Upstream left line and column desynced on carriage-return,
+;;     next-line, line-separator and paragraph-separator endings, which
+;;     get-comment already handled.
+;;
+;;   - The reader record has a new nongenerative UID, since its fields changed.
+;;
+;; Recorded spans are not always minimal lexemes. On the error-recovery and
+;; directive paths get-token* consumes a prefix before the token it ultimately
+;; returns, and that prefix is attributed to it rather than dropped. Nothing is
+;; ever lost or duplicated, so concatenating the text of all tokens reproduces
+;; the input byte for byte, malformed input in tolerant mode included.
 
 ;; Permission is hereby granted, free of charge, to any person obtaining a
 ;; copy of this software and associated documentation files (the "Software"),
@@ -43,7 +70,8 @@
 
 (library (pitch reader)
   (export
-    get-token
+    get-token get-token*
+    token? token-kind token-text token-start token-end token-value
     read-annotated read-datum
     detect-scheme-file-type
     reader? make-reader reader-warning
@@ -51,7 +79,7 @@
     reader-mode reader-mode-set!
     reader-fold-case? reader-fold-case?-set!
     reader-tolerant? reader-tolerant?-set!
-    reader-line reader-column
+    reader-line reader-column reader-offset
     reader-saved-line reader-saved-column
     annotation? annotation-expression annotation-stripped annotation-source
     annotation-source->condition source-condition? source-filename
@@ -80,12 +108,35 @@
   (rnrs:lookahead-char (reader-port reader)))
 
 ;; Get a char from the reader.
+;; Does consuming c end a line? The set matches the terminators get-comment
+;; already recognizes, so positions stay consistent with it.
+;;
+;; A carriage return followed by linefeed or next-line is a single line ending
+;; per the RnRS grammar. It is counted when the second character is consumed,
+;; not the first, which is what keeps it from counting twice without having to
+;; remember the previous character.
+(define (line-ending? reader c)
+  (cond ((memv c '(#\linefeed #\x85 #\x2028 #\x2029)) #t)
+        ((eqv? c #\return)
+         (not (memv (lookahead-char reader) '(#\linefeed #\x85))))
+        (else #f)))
+
+;; The single point where input is consumed, and therefore the only place
+;; recording has to happen. Lookahead goes through lookahead-char, which does
+;; not consume and so must not record.
 (define (get-char reader)
   (let ((c (rnrs:get-char (reader-port reader))))
-    (when (eqv? c #\linefeed)
+    (when (line-ending? reader c)
       (reader-line-set! reader (+ (reader-line reader) 1))
       (reader-column-set! reader -1))
     (reader-column-set! reader (+ (reader-column reader) 1))
+    (when (char? c)
+      (reader-offset-set! reader (+ (reader-offset reader) 1))
+      ;; The accumulator is #f unless a get-token call is in progress, so the
+      ;; datum-reading path allocates nothing and behaves exactly as upstream.
+      (let ((text (reader-text reader)))
+        (when text
+          (reader-text-set! reader (cons c text)))))
     c))
 
 ;; Detects the (intended) type of Scheme source: r6rs-library,
@@ -110,19 +161,37 @@
              (else 'unknown))))
         (else 'unknown)))))
 
+;; The UID differs from upstream's because the field layout does. Keeping
+;; upstream's UID would let a separately compiled library with the old layout
+;; load against this definition, which fails silently rather than loudly.
 (define-record-type reader
   (fields port filename
           (mutable line) (mutable column)
           (mutable saved-line) (mutable saved-column)
           (mutable fold-case?)       ;boolean
           (mutable mode)             ;a symbol: rnrs, r5rs, r6rs, r7rs
-          (mutable tolerant?))       ;tolerant to errors?
+          (mutable tolerant?)        ;tolerant to errors?
+          (mutable offset)           ;characters consumed so far
+          (mutable text))            ;#f, or the current token's chars reversed
   (sealed #t) (opaque #f)
-  (nongenerative reader-v0-eec5b78f-a766-4be4-9cd0-fbb52ec572dc)
+  (nongenerative reader-v0-5bc24d56-39f5-4d48-bfa8-0f7c48f706f6)
   (protocol
    (lambda (p)
      (lambda (port filename)
-       (p port filename 1 0 1 0 #f 'rnrs #f)))))
+       (p port filename 1 0 1 0 #f 'rnrs #f 0 #f)))))
+
+;; One token, with the source text that produced it. The span is in characters
+;; and indexes the reader's input, so (substring source start end) is text.
+;;
+;; text is not always a minimal lexeme. On the error-recovery and directive
+;; paths get-token* consumes a prefix before the token it ultimately returns,
+;; and that prefix is attributed here rather than discarded. This is what makes
+;; concatenating token text reproduce the input unconditionally, malformed
+;; input included.
+(define-record-type token
+  (fields kind text start end value)
+  (sealed #t) (opaque #f)
+  (nongenerative token-v0-6f2630c8-6b1e-4d7b-85b6-f5cbdabf4795))
 
 (define (reader-mark reader)
   (reader-saved-line-set! reader (reader-line reader))
@@ -157,8 +226,13 @@
                    source
                    stripped))
 
+;; The datum entry points disarm recording on the way in. If a previous
+;; get-token call escaped via an exception it left the accumulator armed, and
+;; nothing else would ever switch it back off. Neither of these is called from
+;; inside the library, so doing it here cannot truncate a token in progress.
 (define (read-annotated reader)
   (assert (reader? reader))
+  (reader-text-set! reader #f)
   (let ((labels (make-labels)))
     (let*-values (((type x) (get-lexeme reader))
                   ((_ d^) (handle-lexeme reader type x labels #f)))
@@ -167,6 +241,7 @@
 
 (define (read-datum reader)
   (assert (reader? reader))
+  (reader-text-set! reader #f)
   (let ((labels (make-labels)))
     (let*-values (((type x) (get-lexeme reader))
                   ((d _) (handle-lexeme reader type x labels #f)))
@@ -466,14 +541,35 @@
 
 ;; Get the next lexeme from the reader, ignoring anything that is
 ;; like a comment.
+;;
+;; This calls get-token*, never get-token. Two reasons, both load-bearing. It
+;; keeps read-annotated and read-datum behaving exactly as upstream. And the
+;; #; branch of get-token* reads its commented datum through handle-lexeme,
+;; which reaches here; going through get-token would reset the accumulator
+;; partway through the #; token and truncate its recorded span.
 (define (get-lexeme p)
-  (let-values (((type lexeme) (get-token p)))
+  (let-values (((type lexeme) (get-token* p)))
     (if (atmosphere? type)
         (get-lexeme p)
         (values type lexeme))))
 
-;; Get the next token. Can be a lexeme, directive, whitespace or comment.
+;; Get the next token, with the source text that produced it.
+;;
+;; Only this outermost call brackets the span. get-token* recurses into itself
+;; on the atmosphere, directive and error-recovery paths, and everything those
+;; recursive calls consume stays in the accumulator, so it is attributed to the
+;; token finally returned instead of being lost.
 (define (get-token p)
+  (assert (reader? p))
+  (let ((start (reader-offset p)))
+    (reader-text-set! p '())
+    (let-values (((kind value) (get-token* p)))
+      (let ((text (list->string (reverse (reader-text p)))))
+        (reader-text-set! p #f)
+        (make-token kind text start (reader-offset p) value)))))
+
+;; Get the next token. Can be a lexeme, directive, whitespace or comment.
+(define (get-token* p)
   (assert (reader? p))
   (reader-mark p)
   (let ((c (get-char p)))
@@ -505,7 +601,7 @@
                      (values 'bytevector #f))
                     (else
                      (reader-warning p "Expected #vu8(")
-                     (get-token p)))))
+                     (get-token* p)))))
            ((#\u #\U)                   ;r7rs
             (let* ((c1 (and (eqv? (lookahead-char p) #\8) (get-char p)))
                    (c2 (and (eqv? c1 #\8) (eqv? (lookahead-char p) #\() (get-char p))))
@@ -514,10 +610,10 @@
                      (values 'bytevector #f))
                     (else
                      (reader-warning p "Expected #u8(")
-                     (get-token p)))))
+                     (get-token* p)))))
            ((#\;)                     ;s-expr/datum comment
             (let lp ((atmosphere '()))
-              (let-values (((type token) (get-token p)))
+              (let-values (((type token) (get-token* p)))
                 (cond ((eq? type 'eof)
                        (eof-warning p)
                        (values 'inline-comment (cons (reverse atmosphere) p)))
@@ -535,7 +631,7 @@
                            (column (reader-saved-column p)))
                        (values 'shebang `(,line ,column ,(get-line p)))))
                     ((and (char? next-char) (char-alphabetic? next-char))
-                     (let-values (((type id) (get-token p)))
+                     (let-values (((type id) (get-token* p)))
                        (cond
                          ((eq? type 'identifier)
                           (case id
@@ -563,14 +659,14 @@
                                  (values 'directive id))))
                          (else
                           (reader-warning p "Expected an identifier after #!")
-                          (get-token p)))))
+                          (get-token* p)))))
                     ((eq? (reader-mode p) 'rnrs)
                      ;; Guile compat.
-                     (get-token p)
+                     (get-token* p)
                      (values 'comment (get-!-comment p)))
                     (else
                      (reader-warning p "Expected an identifier after #!")
-                     (get-token p)))))
+                     (get-token* p)))))
            ((#\b #\B #\o #\O #\d #\D #\x #\X #\i #\I #\e #\E)
             (get-number p (list c #\#)))
            ((#\t #\T)
@@ -669,10 +765,10 @@
                    (values 'reference (string->number (list->string (reverse char*)) 10)))
                   (else
                    (reader-warning p "Expected #<n>=<datum> or #<n>#" next)
-                   (get-token p))))))
+                   (get-token* p))))))
            (else
             (reader-warning p "Invalid #-syntax" c)
-            (get-token p)))))
+            (get-token* p)))))
       ((char=? c #\")
        (values 'value (get-string p)))
       ((memv c '(#\0 #\1 #\2 #\3 #\4 #\5 #\6 #\7 #\8 #\9))
@@ -714,7 +810,7 @@
                        (eof-warning p))
                       (else
                        (reader-warning p "Invalid character following \\")))
-                (get-token p)))))
+                (get-token* p)))))
       (else
        (case c
          ((#\() (values 'openp #f))
@@ -734,7 +830,7 @@
           (get-identifier p #f 'pipe))
          (else
           (reader-warning p "Invalid leading character" c)
-          (get-token p)))))))
+          (get-token* p)))))))
 
 ;;; Datum reader
 

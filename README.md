@@ -31,9 +31,14 @@ kept alongside the derived reader at `src/pitch/reader.sls` so the changes
 are always visible:
 
 ```
+make test             # reader regression suite plus pitch's own tests
 make vendor-diff      # exact changeset against pristine upstream
 make vendor-verify    # confirm vendor/ has not been edited
 ```
+
+`tests/test-reader.sps` is laesare's own suite, ported only far enough to run
+against `(pitch reader)`; it is the evidence that the vendored lexical analysis
+still behaves identically. `tests/test-recording.sps` covers what pitch adds.
 
 See [`vendor/laesare/VENDOR.md`](vendor/laesare/VENDOR.md) for the pin and
 the refresh procedure.
