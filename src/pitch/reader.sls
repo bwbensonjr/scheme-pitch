@@ -107,7 +107,6 @@
 (define (lookahead-char reader)
   (rnrs:lookahead-char (reader-port reader)))
 
-;; Get a char from the reader.
 ;; Does consuming c end a line? The set matches the terminators get-comment
 ;; already recognizes, so positions stay consistent with it.
 ;;
@@ -121,9 +120,9 @@
          (not (memv (lookahead-char reader) '(#\linefeed #\x85))))
         (else #f)))
 
-;; The single point where input is consumed, and therefore the only place
-;; recording has to happen. Lookahead goes through lookahead-char, which does
-;; not consume and so must not record.
+;; Get a char from the reader. The single point where input is consumed, and
+;; therefore the only place recording has to happen. Lookahead goes through
+;; lookahead-char, which does not consume and so must not record.
 (define (get-char reader)
   (let ((c (rnrs:get-char (reader-port reader))))
     (when (line-ending? reader c)
