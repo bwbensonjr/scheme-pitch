@@ -5,14 +5,25 @@ untouched throughout.
 
 ## 1. Regression baseline
 
-- [ ] 1.1 Copy `vendor/laesare/tests/test-reader.sps` and
-      `vendor/laesare/tests/runner.sls` into a pitch-side test directory,
-      changing only the library names `(laesare reader)` and
-      `(laesare tests runner)` to their pitch equivalents
-- [ ] 1.2 Add a `make test` target that runs the suite under `chez --libdirs`
-- [ ] 1.3 Confirm the suite passes green against the unmodified derived reader,
-      and record the pass count as the baseline to regress against
-- [ ] 1.4 Confirm `make vendor-verify` passes and `make vendor-diff` still shows
+Two deviations from the plan, found while porting:
+
+- The suite imports `(srfi :64 testing)`, which upstream resolves through Akku.
+  Neither Akku nor chez-srfi is available, and the suite uses only five SRFI 64
+  forms. `tests/runner.sls` is therefore a purpose-written harness providing
+  exactly those forms, not a port of upstream's runner. It records failures and
+  raised conditions and continues, so a run always yields a full tally.
+- The `read-files` test hardcodes `"reader.sls"` relative to the working
+  directory. It now opens `src/pitch/reader.sls`, so `make test` must be run
+  from the repo root.
+
+- [x] 1.1 Copy `vendor/laesare/tests/test-reader.sps` into `tests/`, changing
+      the library imports to `(pitch reader)` and `(tests runner)` and the
+      `read-files` path; write `tests/runner.sls` as a minimal SRFI 64 subset
+- [x] 1.2 Add a `make test` target that runs the suite under `chez --libdirs`
+- [x] 1.3 Confirm the suite passes green against the unmodified derived reader,
+      and record the pass count as the baseline to regress against:
+      **196 passed, 0 failed**
+- [x] 1.4 Confirm `make vendor-verify` passes and `make vendor-diff` still shows
       only the header and library rename
 
 ## 2. Reader state for recording
