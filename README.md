@@ -63,6 +63,21 @@ supplies a layout core that provably minimizes a user-supplied cost objective �
 which is where pitch's aesthetic preferences get encoded, rather than in ad-hoc
 line-breaking heuristics.
 
+That layout core is ported and shipped, as `(pitch doc)`, `(pitch cost)` and
+`(pitch layout)`. Nothing calls it yet: turning a CST into a document is the
+printer's work, and it is where comment placement — the actually hard problem —
+lives. The cost objective it ships with is the reference implementation's, not
+pitch's; the one encoding pitch's taste needs real Scheme documents to tune
+against.
+
+The port is checked against the original. `make oracle-layout` renders a corpus
+through both `(pitch layout)` and Racket's `pretty-expressive` and requires the
+text, the cost and the taint flag to agree — the same discipline the datum
+projection uses with Chez's `read`, and for the same reason: written
+expectations confirm the cases you thought of, and only an independent
+implementation finds the ones you did not. It needs Racket, so it is not part of
+`make test`, which runs on Chez alone.
+
 ## Safety checks
 
 Scheme's `read` discards comments, bracket shape, quote abbreviations, numeric
@@ -148,8 +163,12 @@ src/pitch/parse.sls      tokenizing and parsing, with diagnostics
 src/pitch/diagnostic.sls one defect, anchored to a token; shared vocabulary
 src/pitch/datum.sls      cst->datum, the projection to host Scheme data
 src/pitch/check.sls      layers 1 and 2, and the combined runner
+src/pitch/doc.sls        the document algebra the layout engine resolves
+src/pitch/cost.sls       the cost factory interface and the default objective
+src/pitch/layout.sls     the Pi-e layout engine
 vendor/laesare/          pristine upstream copy, never edited
 tests/                   regression baseline plus pitch's own tests
+tests/oracle/            one corpus, rendered by pitch and by pretty-expressive
 docs/DESIGN.md           design decisions and open questions
 openspec/                proposals and capability specs
 ```
@@ -162,6 +181,7 @@ visible:
 
 ```
 make test             # reader regression suite plus pitch's own tests
+make oracle-layout    # layout engine vs. Racket's pretty-expressive
 make vendor-diff      # exact changeset against pristine upstream
 make vendor-verify    # confirm vendor/ has not been edited
 ```
@@ -170,7 +190,8 @@ make vendor-verify    # confirm vendor/ has not been edited
 against `(pitch reader)`; it is the evidence that the vendored lexical analysis
 still behaves identically. `tests/test-recording.sps` covers what pitch adds to
 the reader, `tests/test-cst.sps` the CST layer, `tests/test-datum.sps` the datum
-projection, and `tests/test-check.sps` the safety checks.
+projection, `tests/test-check.sps` the safety checks, `tests/test-doc.sps` the
+document algebra, and `tests/test-layout.sps` the layout engine.
 
 See [`vendor/laesare/VENDOR.md`](vendor/laesare/VENDOR.md) for the pin and the
 refresh procedure.
