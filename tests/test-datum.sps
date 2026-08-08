@@ -3,17 +3,13 @@
 ;; Copyright © 2026 Brent Benson
 ;; SPDX-License-Identifier: MIT
 
-;; Tests for the datum projection and the layer 2 datum-equivalence check.
+;; Tests for the datum projection. The checks built on it -- layer 1, layer 2
+;; and the combined runner -- are in tests/test-check.sps.
 ;;
-;; Two conventions worth knowing before editing this file.
-;;
-;; Cyclic data are asserted with test-assert over a boolean, never with
-;; test-equal over the datum itself. The runner writes expected and actual on
-;; failure, and writing a cyclic datum is not something to risk in a test that
-;; is already failing.
-;;
-;; The layer 2 negative tests matter more than the positive ones. A comparator
-;; that returns #t unconditionally passes every positive test in this file.
+;; One convention worth knowing before editing this file: cyclic data are
+;; asserted with test-assert over a boolean, never with test-equal over the
+;; datum itself. The runner writes expected and actual on failure, and writing
+;; a cyclic datum is not something to risk in a test that is already failing.
 #!r6rs
 
 (import
@@ -47,12 +43,6 @@
   (let-values (((document parse-diagnostics) (parse-source source "<test>")))
     (let-values (((data datum-diagnostics) (cst->datum document)))
       (append parse-diagnostics datum-diagnostics))))
-
-(define (equivalent? a b)
-  (let-values (((ok? diagnostics) (check-datum-equivalence a b))) ok?))
-
-(define (check-diagnostics a b)
-  (let-values (((ok? diagnostics) (check-datum-equivalence a b))) diagnostics))
 
 ;;; Projection
 
@@ -262,76 +252,6 @@
 (test-assert (datum=? (proj "+nan.0") (proj "+nan.0")))
 (test-assert (datum=? (proj "1/2") (proj "1/2")))
 (test-assert (not (datum=? (proj "1/2") (proj "0.5"))))
-
-(test-end)
-
-;;; Layer 2: sources that differ only in layout
-
-(test-begin "layer2-equivalent")
-
-(test-assert (equivalent? "(define (f x)\n  (g x))" "(define (f x) (g x))"))
-(test-assert (equivalent? "(a b)" "(a ; note\n b)"))
-(test-assert (equivalent? "(a\n\n  b)" "(a b)"))
-(test-assert (equivalent? "  (a b)  " "(a b)"))
-(test-assert (equivalent? "(a #| c |# b)" "(a b)"))
-(test-assert (equivalent? "(a)\n(b)" "(a) (b)"))
-
-(test-end)
-
-;;; Layer 2: sources that differ in meaning
-;;
-;; The load-bearing group. A comparator returning #t unconditionally passes
-;; every test above and fails every test here.
-
-(test-begin "layer2-not-equivalent")
-
-(test-assert (not (equivalent? "(a b)" "(a c)")))
-(test-assert (not (equivalent? "(a) (b)" "(a)")))
-(test-assert (not (equivalent? "(a (b c))" "(a b c)")))
-(test-assert (not (equivalent? "(a b)" "(a b c)")))
-(test-assert (not (equivalent? "(a . b)" "(a b)")))
-(test-assert (not (equivalent? "(a b)" "(b a)")))
-(test-assert (not (equivalent? "#(1 2)" "(1 2)")))
-(test-assert (not (equivalent? "1" "1.0")))
-(test-assert (not (equivalent? "\"a\"" "a")))
-(test-assert (not (equivalent? "(a)" "()")))
-
-(test-end)
-
-;;; Layer 2: defects fail rather than compare
-
-(test-begin "layer2-failure")
-
-;; Identical texts, but neither is usable, so this is a failure and not an
-;; equivalence.
-(test-assert (not (equivalent? "(a (b" "(a (b")))
-(test-assert (positive? (length (check-diagnostics "(a (b" "(a (b"))))
-(test-assert (not (equivalent? "(#1#)" "(#1#)")))
-(test-assert (positive? (length (check-diagnostics "(#1#)" "(#1#)"))))
-(test-assert (not (equivalent? "(a b)" "(a b")))
-(test-assert (not (equivalent? "#vu8(300)" "#vu8(300)")))
-
-;; A clean pair reports no diagnostics at all.
-(test-equal '() (check-diagnostics "(a b)" "(a  b)"))
-
-(test-end)
-
-;;; Layer 2: the known weaknesses, pinned
-;;
-;; Each of these PASSES datum equivalence. That is the documented weakness,
-;; and layer 1 exists to catch every one of them. Pinning them as tests keeps
-;; the weakness visible to whoever reads this file next.
-
-(test-begin "layer2-known-weaknesses")
-
-(test-assert (equivalent? "(a ; note\n b)" "(a b)"))          ;comment deleted
-(test-assert (equivalent? "(a #;(x) b)" "(a b)"))             ;#; elision moved
-(test-assert (equivalent? "[a b]" "(a b)"))                   ;bracket flipped
-(test-assert (equivalent? "'x" "(quote x)"))                  ;abbrev expanded
-(test-assert (equivalent? "#xff" "255"))                      ;radix changed
-(test-assert (equivalent? "\"\\x41;\"" "\"A\""))              ;escape respelled
-(test-assert (equivalent? "#\\nul" "#\\null"))                ;char name changed
-(test-assert (equivalent? "#vu8(1)" "#u8(1)"))                ;dialect spelling
 
 (test-end)
 
