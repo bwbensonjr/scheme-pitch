@@ -1,0 +1,90 @@
+Each numbered group is intended to land as one named commit, so the series stays
+legible enough to port to the `recording-tokens` branch of the GitHub mirror.
+Run `make vendor-verify` before and after the series; `vendor/laesare/` must stay
+untouched throughout.
+
+## 1. Regression baseline
+
+- [ ] 1.1 Copy `vendor/laesare/tests/test-reader.sps` and
+      `vendor/laesare/tests/runner.sls` into a pitch-side test directory,
+      changing only the library names `(laesare reader)` and
+      `(laesare tests runner)` to their pitch equivalents
+- [ ] 1.2 Add a `make test` target that runs the suite under `chez --libdirs`
+- [ ] 1.3 Confirm the suite passes green against the unmodified derived reader,
+      and record the pass count as the baseline to regress against
+- [ ] 1.4 Confirm `make vendor-verify` passes and `make vendor-diff` still shows
+      only the header and library rename
+
+## 2. Reader state for recording
+
+- [ ] 2.1 Add an absolute character offset field and a per-token text accumulator
+      field to the reader record at `src/pitch/reader.sls:113`
+- [ ] 2.2 Bump the `nongenerative` UID to a fresh value in the same edit, so a
+      stale compiled library cannot load against the new field layout
+- [ ] 2.3 Extend the record protocol to initialize offset to 0 and the
+      accumulator to empty
+- [ ] 2.4 Export an accessor for the current offset
+- [ ] 2.5 Update `get-char` to increment the offset and append the consumed
+      character to the accumulator
+- [ ] 2.6 Re-run the baseline suite; it must still pass, since nothing observable
+      has changed yet
+
+## 3. Line and column correctness
+
+- [ ] 3.1 Extend `get-char` to treat `#\return`, U+0085, U+2028, and U+2029 as
+      line endings, advancing the line and resetting the column
+- [ ] 3.2 Handle CRLF as a single line ending using lookahead, without consuming
+      the line feed twice
+- [ ] 3.3 Add tests for each line-ending form, including CRLF counting once and
+      positions reported after a comment containing non-line-feed separators
+- [ ] 3.4 Re-run the baseline suite
+
+## 4. Token record and the get-token split
+
+- [ ] 4.1 Define a token record type with kind, raw text, start offset, end
+      offset, and parsed value, plus its accessors, and export them
+- [ ] 4.2 Rename the existing `get-token` to `get-token*` and repoint all 11
+      internal recursive tail-calls (lines 508, 517, 520, 538, 566, 569, 573,
+      672, 675, 717, 737 in the current file) at `get-token*`
+- [ ] 4.3 Point `get-lexeme` at `get-token*`, not at the new wrapper; this is
+      required both to keep the datum path unchanged and to stop the accumulator
+      being reset partway through a `#;` token
+- [ ] 4.4 Define the new `get-token` wrapper: note the start offset, reset the
+      accumulator, call `get-token*`, materialize the raw text, note the end
+      offset, and return a token record
+- [ ] 4.5 Verify no remaining call site inside the library reaches the wrapper by
+      accident
+- [ ] 4.6 Re-run the baseline suite; `read-annotated`, `read-datum`, and
+      `detect-scheme-file-type` must be unaffected
+
+## 5. Round-trip tests
+
+- [ ] 5.1 Add a helper that tokenizes a string to end of input and concatenates
+      the raw text of every token
+- [ ] 5.2 Assert the offset span of every token indexes back to its own raw text
+- [ ] 5.3 Round-trip the collapse cases individually: radix prefixes (`#xff`),
+      string escapes (`"\x41;"`), char-name spellings (`nul`/`null`,
+      `linefeed`/`newline`, `esc`/`escape`), `#t`/`#true` and `#f`/`#false`,
+      `|foo|` versus `foo`, and bracket shapes
+- [ ] 5.4 Assert that in each collapse case the parsed value is still the value
+      the vendored reader produced, so recording did not displace parsing
+- [ ] 5.5 Round-trip atmosphere: leading and trailing whitespace, line comments,
+      nested `#| |#` comments, `#;` datum comments including the full commented
+      span, `#!r6rs` and `#!fold-case` directives, shebang lines, and Guile
+      `#! !#` comments in permissive mode
+- [ ] 5.6 Round-trip malformed input in tolerant mode, confirming the discarded
+      prefix is attributed to the following token and nothing is lost
+- [ ] 5.7 Round-trip whole files: the vendored reader sources themselves are
+      convenient real-world inputs
+- [ ] 5.8 Assert dialect gating is unchanged, for example `#vu8(` rejected in
+      `r7rs` mode
+
+## 6. Documentation and provenance
+
+- [ ] 6.1 Update the change list in the `src/pitch/reader.sls` header to describe
+      the recording change, replacing the "not implemented yet" placeholder
+- [ ] 6.2 Review `make vendor-diff` output end to end and confirm it reads as a
+      reviewable changeset rather than an incidental rewrite
+- [ ] 6.3 Note in `vendor/laesare/VENDOR.md` that the diff is now the candidate
+      upstream patch
+- [ ] 6.4 Confirm `make vendor-verify` still passes
