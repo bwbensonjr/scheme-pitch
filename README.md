@@ -74,20 +74,39 @@ printer did.
 | Layer | Check | Status |
 |---|---|---|
 | 0 | **Round-trip.** With formatting disabled, concatenating the CST reproduces the input byte for byte. | shipped |
-| 1 | **Token equivalence.** Re-lex the output; compare token sequences with whitespace filtered out and comments retained in order. Primary check. | planned |
+| 1 | **Token equivalence.** Re-lex the output; compare token sequences with whitespace filtered out and comments retained in order. Primary check. | shipped |
 | 2 | **Datum equivalence.** Via pitch's own `cst->datum`. An independent code path from layer 1. | shipped |
 | 3 | **Idempotence.** `pitch(pitch(x)) == pitch(x)`. | planned |
 
-Layers 0 and 2 are implemented and tested. Layer 2 is not yet wired end to end,
-because there is no printer and so no output to re-read; the check takes two
-source *texts* precisely so that whoever wires it up cannot pass the tree the
-printer walked.
+Layers 1 and 2 are not yet wired end to end, because there is no printer and so
+no output to re-read. Both take two source *texts* precisely so that whoever
+wires them up cannot pass the tree the printer walked.
 
-Because `cst->datum` produces ordinary host data, comparing two projections is
-`equal?`, which R6RS requires to terminate on circular arguments — so `#0=(a
-. #0#)` needs no comparator of pitch's own. `cst->datum` is also the only layer
-that can see defects structure cannot show: `(#1#)` and `#vu8(300)` both parse
-clean, and are reported there.
+**Layer 1 is strictly stronger than layer 2**, and the suite pins the difference
+rather than asserting it: every one of these passes datum equivalence and fails
+token equivalence.
+
+| Change | Layer 2 | Layer 1 |
+|---|---|---|
+| a comment deleted | passes | **caught** |
+| a `#;` deleted, or moved to elide a different form | passes | **caught** |
+| `[a b]` rewritten to `(a b)` | passes | **caught** |
+| `'x` expanded to `(quote x)` | passes | **caught** |
+| `#xff` rewritten as `255` | passes | **caught** |
+| `"\x41;"` rewritten as `"A"`, `#\nul` as `#\null` | passes | **caught** |
+| a comment moved across a code token | passes | **caught** |
+
+Layer 1 uses the lexer and nothing else, which is what makes the two layers
+genuinely independent: a layer 2 failure could come from the lexer, the parser,
+or the projection, while a layer 1 failure has one author. It also reports where
+it failed — the first differing index and both tokens — because its sequence is
+flat.
+
+Layer 2 is kept despite being weaker because it is a separate code path, and
+because `cst->datum` is the only layer that sees defects structure cannot show:
+`(#1#)` and `#vu8(300)` both parse clean and are reported there. Comparing two
+projections is `equal?`, which R6RS requires to terminate on circular arguments,
+so `#0=(a . #0#)` needs no comparator of pitch's own.
 
 Pitch does not use any host implementation's `read` at runtime — that would make
 the guarantee vary by platform. Host readers are used as *test* oracles only:
@@ -128,7 +147,7 @@ src/pitch/cst.sls        CST node types and cst->text
 src/pitch/parse.sls      tokenizing and parsing, with diagnostics
 src/pitch/diagnostic.sls one defect, anchored to a token; shared vocabulary
 src/pitch/datum.sls      cst->datum, the projection to host Scheme data
-src/pitch/check.sls      layer 2, datum equivalence
+src/pitch/check.sls      layers 1 and 2, and the combined runner
 vendor/laesare/          pristine upstream copy, never edited
 tests/                   regression baseline plus pitch's own tests
 docs/DESIGN.md           design decisions and open questions
@@ -150,8 +169,8 @@ make vendor-verify    # confirm vendor/ has not been edited
 `tests/test-reader.sps` is laesare's own suite, ported only far enough to run
 against `(pitch reader)`; it is the evidence that the vendored lexical analysis
 still behaves identically. `tests/test-recording.sps` covers what pitch adds to
-the reader, `tests/test-cst.sps` the CST layer, and `tests/test-datum.sps` the
-datum projection and layer 2.
+the reader, `tests/test-cst.sps` the CST layer, `tests/test-datum.sps` the datum
+projection, and `tests/test-check.sps` the safety checks.
 
 See [`vendor/laesare/VENDOR.md`](vendor/laesare/VENDOR.md) for the pin and the
 refresh procedure.

@@ -72,11 +72,64 @@ part of the projection, and the only part that mutates — gets no oracle covera
 at all and rests entirely on written expectations. A green differential run is
 not full coverage, and the tests say so where a reader will see it.
 
-### Comparator details
+### What layer 1 compares
 
-Comment *attachment* necessarily changes — that is what formatting
-is. Comment *order* must not. Compare the comment subsequence in order; do not
-compare positions.
+**Settled.** Filter whitespace tokens; compare every token that remains, in
+order, by **kind and text**. Never by position: line and column change under
+formatting by definition.
+
+Kind is not redundant with text. The reader's mode changes mid-file on `#!r6rs`
+and `#!r7rs`, and its fold-case state on `#!fold-case`, so identical text can lex
+differently depending on what preceded it. Comparing kind makes a directive that
+moved or vanished visible at the token whose meaning changed, not only where the
+directive itself is. `token-value` is *not* compared — it is derived from the
+text, and comparing it would import layer 2's weakness, since `#xff` and `255`
+share a value.
+
+**One interleaved sequence**, not separate code and comment subsequences. Comment
+*attachment* necessarily changes — that is what formatting is — and comment
+*positions* are never compared. But comment *order relative to code* must not
+change: a comment crossing a code token alters which code it documents, which is
+a meaning change rather than a layout one. Interleaving is also what catches a
+`#;` relocated to elide a different form, since the `#;` token's place in the
+sequence is exactly what says which datum it hides.
+
+This is stricter than "compare the comment subsequence in order" would be, and
+deliberately so. If the layout engine ever needs to move a comment across a code
+token, that has to be argued for in a proposal rather than quietly permitted by a
+comparator.
+
+**A trailing line ending is filtered with the whitespace.** A line comment's
+token text includes the line ending that terminates it, so `; c` and `; c⏎` are
+different texts differing only in whitespace. The comparator drops one trailing
+line ending — recognizing every ending the reader's grammar counts, with the
+two-character forms counting as one — before comparing. Only `comment` and
+`shebang` tokens can carry one; `#| |#` ends with `|#`, `#;` with the elided
+datum, `#!r6rs` with the directive name.
+
+This is **not** a declared normalization and the list stays empty: no comment
+content is changed or ignored, and two comments whose content differs still
+compare unequal. It stops a tokenization boundary from turning a whitespace
+change into a text change, and it lets a printer end a file with a newline even
+when the file ends in a comment. Line endings as such are layer 0's business,
+where they are compared byte for byte.
+
+### Layer 1 uses the lexer alone
+
+It does not parse and does not project. This is what makes the independence of
+the two layers real: layer 2 runs through the lexer, the parser and the
+projection, so a failure there has three possible authors, while a layer 1
+failure has one.
+
+It costs no coverage. A structural defect in the output — an unbalanced
+delimiter, a dropped close paren — changes the token sequence, so the comparison
+sees it without the parser being involved.
+
+Layer 1 also reports *where* it failed: the first differing index and both
+tokens. The sequence is flat, so this is free, unlike layer 2, where locating a
+difference means walking a possibly cyclic graph. Since layer 1 is the check that
+will actually fire while a printer is being written, taking the free information
+is obviously right.
 
 The datum comparator must terminate on cyclic structure. `#0=(a . #0#)` is legal
 input.
@@ -130,9 +183,20 @@ everything.
   that they do. Deferred until a printer exists to produce real mismatches.
 - Whether the layer 2 check should return the first differing subtree rather than
   a boolean. Same dependency: worth designing against real failures.
-- Layer 2 is not wired end to end, because there is no printer and so no output
-  to re-read. The mechanism and its tests exist; connecting them is the
-  formatter's work, and the requirement that the check take *texts* rather than
+- Whether a comment may ever move across a code token. Layer 1 forbids it. If
+  the layout engine needs the freedom, that needs an argument rather than a
+  quietly weaker comparator.
+- Whether the combined runner should grow layers 0 and 3, or whether the
+  formatter's change should define its own pipeline and leave the runner as the
+  two-text pair. Round-trip compares a tree against the input it was parsed
+  from rather than two texts, so it does not share the signature; idempotence
+  needs the formatter run twice.
+- Whether layer 1 should report *all* differences rather than the first. The
+  first is what a human fixes; a full diff may be more useful across a corpus
+  run, which is the CI change's problem.
+- Layers 1 and 2 are not wired end to end, because there is no printer and so no
+  output to re-read. The mechanisms and their tests exist; connecting them is the
+  formatter's work, and the requirement that the checks take *texts* rather than
   trees is what will keep that wiring honest.
 
 ### Declared normalizations
@@ -531,6 +595,12 @@ The layer 1 check does catch violations — swallowed code shows up as missing
 tokens — but this is the single most dangerous printer bug in any Lisp
 formatter, and it deserves an assertion where it happens rather than a diagnosis
 three layers downstream.
+
+**Status.** Layer 1 is shipped, and `tests/test-check.sps` pins this case: `(a ;
+c⏎ b)` printed as `(a ; c b)` is caught, because the comment token swallows `b)`
+and two tokens vanish from the sequence. That is a backstop, not a substitute.
+The assertion still belongs in the printer, where it can name the form being
+emitted; layer 1 can only report that the output no longer matches.
 
 
 ## 7. Corpora and CI

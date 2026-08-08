@@ -15,15 +15,16 @@ help:
 
 # test-reader.sps is the regression baseline: the vendored laesare suite,
 # ported to (pitch reader) and otherwise unmodified. test-recording.sps covers
-# what pitch adds to the reader, test-cst.sps the CST layer, and test-datum.sps
-# the datum projection and the layer 2 check. Must be run from the repo root;
-# the read-files, round-trip-files and differential-oracle tests open relative
-# paths.
+# what pitch adds to the reader, test-cst.sps the CST layer, test-datum.sps the
+# datum projection, and test-check.sps the output safety checks. Must be run
+# from the repo root; the read-files, round-trip-files and differential-oracle
+# tests open relative paths.
 test:
 	@$(CHEZ) --libdirs $(LIBDIRS) --program tests/test-reader.sps
 	@$(CHEZ) --libdirs $(LIBDIRS) --program tests/test-recording.sps
 	@$(CHEZ) --libdirs $(LIBDIRS) --program tests/test-cst.sps
 	@$(CHEZ) --libdirs $(LIBDIRS) --program tests/test-datum.sps
+	@$(CHEZ) --libdirs $(LIBDIRS) --program tests/test-check.sps
 
 # The authoritative changeset: pristine upstream reader vs. pitch's derived one.
 # Exit status is ignored because a non-empty diff is the expected state.
