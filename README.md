@@ -37,11 +37,19 @@ observed in existing Scheme and Lisp formatters.
 ```
 source text
   → lossless lexer          (derived from laesare; tokens carry exact source text)
+  → token vector            (materialized, so lexer and parser are separable)
   → CST                     (trivia are first-class; concatenation reproduces input)
   → cost-based optimal layout   (pretty-expressive / Πe style engine)
   → per-form style table    (SRFI 272 style grammar as the on-disk format)
   → formatted text
 ```
+
+In the CST, whitespace and comments are ordinary members of a node's child
+sequence rather than trivia attached to a neighbouring token, so concatenating a
+tree reproduces its input by construction — there is no attachment decision at
+which a comment can be dropped. Parsing is tolerant and always returns a tree,
+but never guesses: no token is inserted, dropped, or substituted to repair
+malformed input, and a tree is clean exactly when its diagnostic list is empty.
 
 The CST and the layout engine are dialect-agnostic. A dialect is a bundle of a
 reader profile, a style table, and a normalization policy, and nothing below
@@ -103,6 +111,8 @@ a magic comment override. Pitch never silently guesses on ambiguous input.
 
 ```
 src/pitch/reader.sls     derived lossless reader (see header for changes)
+src/pitch/cst.sls        CST node types and cst->text
+src/pitch/parse.sls      tokenizing and parsing, with diagnostics
 vendor/laesare/          pristine upstream copy, never edited
 tests/                   regression baseline plus pitch's own tests
 docs/DESIGN.md           design decisions and open questions
@@ -123,7 +133,8 @@ make vendor-verify    # confirm vendor/ has not been edited
 
 `tests/test-reader.sps` is laesare's own suite, ported only far enough to run
 against `(pitch reader)`; it is the evidence that the vendored lexical analysis
-still behaves identically. `tests/test-recording.sps` covers what pitch adds.
+still behaves identically. `tests/test-recording.sps` covers what pitch adds to
+the reader, and `tests/test-cst.sps` covers the CST layer.
 
 See [`vendor/laesare/VENDOR.md`](vendor/laesare/VENDOR.md) for the pin and the
 refresh procedure.
