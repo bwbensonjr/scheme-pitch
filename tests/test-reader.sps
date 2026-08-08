@@ -15,7 +15,11 @@
 ;;     libraries, and drops the (srfi :64 testing) import, since the pitch
 ;;     runner provides those forms directly.
 ;;   - The read-files test opens src/pitch/reader.sls rather than reader.sls.
-;; The tests themselves are unchanged.
+;;   - The two lexing helpers call get-token* rather than get-token. In pitch,
+;;     get-token* is upstream's get-token under its new name, and the exported
+;;     get-token is the recording wrapper returning a token record. The tests
+;;     keep their original semantics.
+;; The assertions themselves are unchanged.
 
 ;; Permission is hereby granted, free of charge, to any person obtaining a
 ;; copy of this software and associated documentation files (the "Software"),
@@ -59,7 +63,7 @@
               (let ((reader (make-reader (open-string-input-port input) "<test>")))
                 (reader-mode-set! reader (if (null? arg*) 'r6rs (car arg*)))
                 (let lp ((ret '()))
-                  (let-values (((type token) (get-token reader)))
+                  (let-values (((type token) (get-token* reader)))
                     (if (eof-object? token)
                         (reverse ret)
                         (lp (cons (cons type token) ret))))))))))
@@ -193,7 +197,7 @@
                   (reader-tolerant?-set! reader #t)
                   (reader-mode-set! reader (if (null? arg*) 'r6rs (car arg*)))
                   (let lp ((ret '()))
-                    (let-values (((type token) (get-token reader)))
+                    (let-values (((type token) (get-token* reader)))
                       (if (eof-object? token)
                           (reverse ret)
                           (lp (cons (cons type token) ret)))))))))))

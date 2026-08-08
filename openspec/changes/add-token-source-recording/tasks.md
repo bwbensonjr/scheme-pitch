@@ -61,21 +61,32 @@ Two deviations from the plan, found while porting:
 
 ## 4. Token record and the get-token split
 
-- [ ] 4.1 Define a token record type with kind, raw text, start offset, end
+The accumulator is now `#f` when no `get-token` call is in progress, rather than
+always a list. Without this the datum path would accumulate every character of
+the input with nothing to reset it, since `get-lexeme` deliberately does not go
+through the wrapper. Holding `#f` means the datum path allocates nothing and
+matches upstream exactly. The reader record's field layout is unchanged, so the
+UID from group 2 still stands. `read-annotated` and `read-datum` disarm on entry
+to cover a `get-token` call that escaped by raising.
+
+- [x] 4.1 Define a token record type with kind, raw text, start offset, end
       offset, and parsed value, plus its accessors, and export them
-- [ ] 4.2 Rename the existing `get-token` to `get-token*` and repoint all 11
-      internal recursive tail-calls (lines 508, 517, 520, 538, 566, 569, 573,
-      672, 675, 717, 737 in the current file) at `get-token*`
-- [ ] 4.3 Point `get-lexeme` at `get-token*`, not at the new wrapper; this is
+- [x] 4.2 Rename the existing `get-token` to `get-token*` and repoint all 11
+      internal recursive tail-calls at `get-token*`
+- [x] 4.3 Point `get-lexeme` at `get-token*`, not at the new wrapper; this is
       required both to keep the datum path unchanged and to stop the accumulator
       being reset partway through a `#;` token
-- [ ] 4.4 Define the new `get-token` wrapper: note the start offset, reset the
+- [x] 4.4 Define the new `get-token` wrapper: note the start offset, reset the
       accumulator, call `get-token*`, materialize the raw text, note the end
       offset, and return a token record
-- [ ] 4.5 Verify no remaining call site inside the library reaches the wrapper by
-      accident
-- [ ] 4.6 Re-run the baseline suite; `read-annotated`, `read-datum`, and
-      `detect-scheme-file-type` must be unaffected
+- [x] 4.5 Verify no remaining call site inside the library reaches the wrapper by
+      accident: the only occurrences of bare `get-token` are its own definition
+      and three comments
+- [x] 4.6 Re-run the baseline suite; `read-annotated`, `read-datum`, and
+      `detect-scheme-file-type` must be unaffected: **196 passed, 0 failed**.
+      The two lexing helpers in the baseline had to be repointed at
+      `get-token*`, since they are direct callers of the exported `get-token`
+      and this change is breaking for those by design.
 
 ## 5. Round-trip tests
 
