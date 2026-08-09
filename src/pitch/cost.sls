@@ -92,8 +92,9 @@
   (lambda (pos len)
     (let ((stop (+ pos len)))
       (if (> stop page-width)
-          (let* ((maxwc (if (> pos page-width) pos page-width)) (a (- maxwc page-width))
-                                                                (b (- stop maxwc)))
+          (let* ((maxwc (if (> pos page-width) pos page-width))
+                 (a (- maxwc page-width))
+                 (b (- stop maxwc)))
             (list (* b (+ (* 2 a) b)) 0))
           (list 0 0)))))
 

@@ -182,11 +182,12 @@
 ;; with the run in a state nobody can reason about. Checking the name here turns
 ;; a static property of the invocation into a message and an untouched tree.
 (define (parse-arguments args)
-  (let loop ((args args) (disposition #f)
-                         (width default-page-width)
-                         (dialect default-dialect)
-                         (operands '())
-                         (literal? #f))
+  (let loop ((args args)
+             (disposition #f)
+             (width default-page-width)
+             (dialect default-dialect)
+             (operands '())
+             (literal? #f))
     (if
       (null? args)
       (finish disposition width dialect (reverse operands))
@@ -297,8 +298,8 @@
 ;; rather than the invocation being rejected. --check stays --check.
 (define (run-stdin opts host)
   (let* ((raw (get-string-all (host-stdin host)))
-          (text (if (eof-object? raw) "" raw))
-          (disposition (if (eq? (options-disposition opts) 'check) 'check 'stdout)))
+         (text (if (eof-object? raw) "" raw))
+         (disposition (if (eq? (options-disposition opts) 'check) 'check 'stdout)))
     (format-one opts host "<stdin>" text disposition)))
 
 ;;; Operands

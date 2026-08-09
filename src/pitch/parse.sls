@@ -53,9 +53,9 @@
 ;; is held until get-token returns and then anchored to that token.
 (define (tokenize source filename)
   (let ((reader (make-reader (open-string-input-port source) filename))
-         (pending '())
-         (tokens '())
-         (diagnostics '()))
+        (pending '())
+        (tokens '())
+        (diagnostics '()))
     (reader-tolerant?-set! reader #t)
     (with-exception-handler
       (lambda (con)
@@ -131,8 +131,9 @@
           (else (values (make-leaf (tok-at i)) (+ i 1))))))
 
     (define (parse-compound i)
-      (let* ((open-tok (tok-at i)) (open-kind (token-kind open-tok))
-                                   (open (make-leaf open-tok)))
+      (let* ((open-tok (tok-at i))
+             (open-kind (token-kind open-tok))
+             (open (make-leaf open-tok)))
         (let-values (((children j) (parse-items (+ i 1) #f)))
           (if (eq? (kind-at j) 'eof)
               ;; Nothing is synthesized to stand in for the missing
@@ -163,12 +164,13 @@
               (for-each
                 (lambda (d) (diagnose! "More than one dot in a list" (leaf-token d)))
                 dots))
-            (else
-              (let ((k (position-of (car dots) data)) (len (length data))
-                                                      (dot-tok (leaf-token (car dots))))
-                (when (= k 0) (diagnose! "Dot with no datum before it" dot-tok))
-                (unless (= len (+ k 2))
-                  (diagnose! "Dot must be followed by exactly one datum" dot-tok))))))))
+            (else (let ((k (position-of (car dots) data))
+                        (len (length data))
+                        (dot-tok (leaf-token (car dots))))
+                    (when (= k 0) (diagnose! "Dot with no datum before it" dot-tok))
+                    (unless (= len (+ k 2))
+                      (diagnose! "Dot must be followed by exactly one datum"
+                                 dot-tok))))))))
 
     (define (position-of x xs)
       (let loop ((i 0) (xs xs))
