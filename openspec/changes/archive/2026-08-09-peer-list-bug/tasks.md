@@ -75,7 +75,7 @@
 
 - [x] 6.1 Check whether `docs/DESIGN.md` §5 describes the headless-list dispatch
       or claims the first element plays the head; correct it if so
-- [ ] 6.2 At sync, confirm the new requirement reads coherently beside the
+- [x] 6.2 At sync, confirm the new requirement reads coherently beside the
       existing clause and fill requirements, which it is deliberately contrasted
       with
 - [x] 6.3 Leave `README.md` alone — no configuration surface changes
