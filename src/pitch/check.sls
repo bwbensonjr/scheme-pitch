@@ -118,8 +118,8 @@
 (define (check-token-equivalence input-text output-text)
   (let-values (((input-tokens input-diagnostics)
                  (significant-tokens input-text "<input>"))
-                ((output-tokens output-diagnostics)
-                  (significant-tokens output-text "<output>")))
+               ((output-tokens output-diagnostics)
+                 (significant-tokens output-text "<output>")))
     (let ((diagnostics (append input-diagnostics output-diagnostics)))
       (if (not (null? diagnostics))
           (values #f #f diagnostics)
@@ -151,8 +151,7 @@
 ;; comparison: there is no useful sense in which two unusable inputs agree.
 (define (check-datum-equivalence input-text output-text)
   (let-values (((input-data input-diagnostics) (source->data input-text "<input>"))
-                ((output-data output-diagnostics)
-                  (source->data output-text "<output>")))
+               ((output-data output-diagnostics) (source->data output-text "<output>")))
     (let ((diagnostics (append input-diagnostics output-diagnostics)))
       (if (null? diagnostics)
           (values (datum=? input-data output-data) '())
@@ -175,8 +174,8 @@
 (define (check-output input-text output-text)
   (let-values (((token-ok? mismatch token-diagnostics)
                  (check-token-equivalence input-text output-text))
-                ((datum-ok? datum-diagnostics)
-                  (check-datum-equivalence input-text output-text)))
+               ((datum-ok? datum-diagnostics)
+                 (check-datum-equivalence input-text output-text)))
     (cond
       ;; Layer 2 sees the lexical diagnostics layer 1 sees, plus the parse and
       ;; projection ones, so its list is the more complete of the two.

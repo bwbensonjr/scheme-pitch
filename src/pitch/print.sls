@@ -332,15 +332,15 @@
 ;; break a following blank line lands on, so it is the one that takes the reset.
 (define (item-doc it tbl)
   (let ((style (item-style it))
-         (reset-last? (and (item-broken? it) (item-blank-after? it))))
+        (reset-last? (and (item-broken? it) (item-blank-after? it))))
     (let loop ((ps (item-pieces it)) (d #f))
-      (if
-        (null? ps)
-        (or d empty-doc)
-        (let* ((last? (null? (cdr ps))) (pd (if (and last? reset-last? (leaf? (car ps)))
-                                                (leaf-doc (car ps) #t)
-                                                (styled-node-doc (car ps) style tbl))))
-          (loop (cdr ps) (if d (concat d (concat space pd)) pd)))))))
+      (if (null? ps)
+          (or d empty-doc)
+          (let* ((last? (null? (cdr ps)))
+                 (pd (if (and last? reset-last? (leaf? (car ps)))
+                         (leaf-doc (car ps) #t)
+                         (styled-node-doc (car ps) style tbl))))
+            (loop (cdr ps) (if d (concat d (concat space pd)) pd)))))))
 
 ;;; Joining
 
@@ -510,7 +510,7 @@
 
 (define (compound-doc node tbl)
   (let ((shape (compound-shape node tbl))
-         (items (children->items (compound-children node) blank-cap-inside)))
+        (items (children->items (compound-children node) blank-cap-inside)))
     (cond
       ((eq? shape 'fill) (fill-body node items tbl))
       ((eq? shape 'generic) (generic-body node items tbl))
@@ -524,16 +524,32 @@
               (generic-body node items tbl)))))))
 
 ;; A list in a data position: no lookup, and its elements styled by `shape` when
-;; there is one. It has no keyword, so its first element plays that part, which
-;; is what makes a clause and a binding list render by the shape everyone
-;; already writes without a second emitter existing for them.
+;; there is one. Which of three renderings it takes turns on whether its style
+;; distinguishes a first element, and that is exactly what its slot list says.
+;;
+;;   a slot     the first element is distinguished -- it is a clause's test, or
+;;              guard's condition variable -- so the generic shape applies with
+;;              that element as the head, and a clause needs no emitter of its
+;;              own
+;;   no slots,  every element is a peer described by a starred tail: a binding
+;;   no fill    list. Aligned at the first element, one per line
+;;   no slots,  peers again, but formals, literals, definition heads and
+;;   fill       bytevectors, where one element per line is nobody's intent
+;;
+;; The middle case is the one this dispatch originally missed, and the comment
+;; that stood here said the missing thing out loud: that a headless list "has no
+;; keyword, so its first element plays that part". True of a clause. False of a
+;; binding list, where treating binding 1 as a head welds binding 2 to it and
+;; staircases the rest off binding 2's column.
 (define (headless-doc node shape tbl)
   (let* ((raw (children->items (compound-children node) blank-cap-inside))
-          (items (if shape (assign-styles raw shape #f) raw)))
-    (if (or (bytevector-node? node)
-            (and shape (null? (styled-slots shape)) (tail-fill? (styled-tail shape))))
-        (fill-body node items tbl)
-        (generic-body node items tbl))))
+         (items (if shape (assign-styles raw shape #f) raw)))
+    (cond
+      ((or (bytevector-node? node)
+           (and shape (null? (styled-slots shape)) (tail-fill? (styled-tail shape))))
+        (fill-body node items tbl))
+      ((and shape (null? (styled-slots shape))) (peer-body node items tbl))
+      (else (generic-body node items tbl)))))
 
 (define (open-doc node) (leaf-doc (compound-open node)))
 
@@ -662,6 +678,27 @@
       (concat (open-doc node) (close-doc node))
       (whole node (align (join-items items fill-sep tbl)))))
 
+;; A list of peers: the same construction as fill-body with the separator that
+;; breaks every gap together rather than each independently, plus a `group` for
+;; the flat rendering. This is a binding list.
+;;
+;; TWO RENDERINGS, NOT THREE. The generic shape offers hanging so a head can sit
+;; alone on the opening line with its arguments beneath. A peer list has no head,
+;; so hanging would mean `(let (` with the bindings two columns in, which nothing
+;; in either community writes. Withholding it also keeps this shape free of the
+;; tie-break the generic one needed: flat and aligned differ in both width and
+;; height, so no ordering question arises.
+;;
+;; `align` is entered immediately after the opening delimiter, so it captures the
+;; first element's column and a break forced inside that element -- by a trailing
+;; comment -- cannot move it. That is the same argument fill-body relies on, and
+;; it is why neither needs the hanging fallback the generic shape keeps for
+;; exactly that case.
+(define (peer-body node items tbl)
+  (if (null? items)
+      (concat (open-doc node) (close-doc node))
+      (group (whole node (align (join-items items nl tbl))))))
+
 ;;; Prefix nodes
 
 ;; The marker and its datum are concatenated with nothing between them, so a
@@ -671,26 +708,26 @@
 ;; a marker from its datum is one a comment forced.
 (define (prefix-doc node tbl)
   (let* ((marker (prefix-marker node))
-          (datum (prefix-datum node))
-          ;; Whitespace between the marker and its datum is discarded like any
-          ;; other, so `'  x` binds as tightly as `'x`. The test is on the items,
-          ;; not on the raw children: a child sequence holding nothing but
-          ;; whitespace produces no items at all.
-          (mid (children->items (prefix-children node) blank-cap-inside)))
+         (datum (prefix-datum node))
+         ;; Whitespace between the marker and its datum is discarded like any
+         ;; other, so `'  x` binds as tightly as `'x`. The test is on the items,
+         ;; not on the raw children: a child sequence holding nothing but
+         ;; whitespace produces no items at all.
+         (mid (children->items (prefix-children node) blank-cap-inside)))
     (if (null? mid)
         (if datum (concat (leaf-doc marker) (node-doc datum tbl)) (leaf-doc marker))
         (let* ((head (make-item (list marker) 0 #f #f #f #t 'expression #f))
-                (items (if datum
-                           (append (cons head mid)
-                                   (list (make-item (list datum)
-                                                    0
-                                                    (node-broken? datum)
-                                                    #f
-                                                    #f
-                                                    #t
-                                                    'expression
-                                                    #f)))
-                           (cons head mid))))
+               (items (if datum
+                          (append (cons head mid)
+                                  (list (make-item (list datum)
+                                                   0
+                                                   (node-broken? datum)
+                                                   #f
+                                                   #f
+                                                   #t
+                                                   'expression
+                                                   #f)))
+                          (cons head mid))))
           (join-items items space tbl)))))
 
 ;;; Error nodes

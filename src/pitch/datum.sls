@@ -61,8 +61,9 @@
 ;; Returns two values: the top-level data in source order, and diagnostics.
 ;; Never raises: where a node cannot be projected it is diagnosed and dropped.
 (define (cst->datum document)
-  (let ((diagnostics '()) (labels #f) ;fresh per top-level datum
-                          (patchers '()))
+  (let ((diagnostics '())
+        (labels #f) ;fresh per top-level datum
+        (patchers '()))
 
     (define (diagnose! msg node)
       (set! diagnostics (cons (make-diagnostic msg (anchor-token node)) diagnostics)))
@@ -152,13 +153,13 @@
 
     (define (project-list node)
       (let* ((cs (projectable node))
-              (improper? (list-improper? node))
-              ;; A dot outside a valid tail position was diagnosed at parse
-              ;; time. It names no datum, so it is dropped rather than
-              ;; projected to some invented value.
-              (elems (if improper? (before-dot cs) (remp dot-leaf? cs)))
-              (tail (and improper? (after-dot cs)))
-              (chain (build-chain (project-each elems))))
+             (improper? (list-improper? node))
+             ;; A dot outside a valid tail position was diagnosed at parse
+             ;; time. It names no datum, so it is dropped rather than
+             ;; projected to some invented value.
+             (elems (if improper? (before-dot cs) (remp dot-leaf? cs)))
+             (tail (and improper? (after-dot cs)))
+             (chain (build-chain (project-each elems))))
         (when (and tail (pair? chain))
           (let-values (((d ref) (project tail)))
             (unless (eq? d omitted)
@@ -169,7 +170,7 @@
 
     (define (project-vector node)
       (let* ((triples (project-each (remp dot-leaf? (projectable node))))
-              (vec (list->vector (map car triples))))
+             (vec (list->vector (map car triples))))
         (let loop ((ts triples) (i 0))
           (unless (null? ts)
             (when (cadr (car ts))

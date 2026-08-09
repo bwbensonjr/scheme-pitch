@@ -691,4 +691,123 @@
 
 (test-end)
 
+;;; Lists of peers
+;;
+;; A list whose style distinguishes no first element -- a binding list -- is not
+;; a list with a head, and must not be laid out as one. The generic aligned
+;; rendering welds element 2 to element 1 with a space no break may be taken at,
+;; then aligns the rest at element 2's column; for `(f a b c)` that is right, and
+;; for `([a 1] [b 2] [c 3])` it produces a staircase.
+;;
+;; The cases at the end of this group are the ones that MUST NOT move. The bug
+;; this group exists for shipped with the whole suite green, so pinning the
+;; neighbouring paths is not padding: it is what stops a later edit collapsing
+;; the three dispatch cases back into two.
+
+(test-begin "a list of peers is aligned at its first element")
+
+;; One binding per line, and every binding -- the first included -- at the column
+;; after the binding list's opening delimiter.
+(test-equal (string-append "(let ([a 1]\n"
+                           "      [b 2]\n"
+                           "      [c 3])\n"
+                           "  (body))")
+            (fmt* "(let ([a 1] [b 2] [c 3]) (body))\n" 20))
+
+;; The shared table entry covers seven forms; cover more than its first member.
+(test-equal (string-append "(let* ([a 1]\n"
+                           "       [b 2]\n"
+                           "       [c 3])\n"
+                           "  (body))")
+            (fmt* "(let* ([a 1] [b 2] [c 3]) (body))\n" 20))
+
+(test-equal (string-append "(letrec ([a 1]\n"
+                           "         [b 2]\n"
+                           "         [c 3])\n"
+                           "  (body))")
+            (fmt* "(letrec ([a 1] [b 2] [c 3]) (body))\n" 20))
+
+(test-equal (string-append "(let-values ([a 1]\n"
+                           "             [b 2]\n"
+                           "             [c 3])\n"
+                           "  (body))")
+            (fmt* "(let-values ([a 1] [b 2] [c 3]) (body))\n" 22))
+
+;; do's binding list is fc* in a slot too, so its (var init step) triples are in
+;; scope. One per line is what do is conventionally written as; this records that
+;; as a decision rather than leaving it to fall out.
+;;
+;; The test clause trails the binding list's closing delimiter rather than
+;; starting a line, and that is do's style rather than anything to do with peers:
+;; `(_ fc* ec . body)` has two slots, and a style joins its slots to the head by
+;; spaces at which no break may be taken. Only the body lies beneath. The width
+;; here is chosen to leave room for that -- narrower, the slots cannot fit at all
+;; and the styled shape breaks inside them, which is a different behavior and not
+;; this requirement's business.
+(test-equal (string-append "(do ([i 0 (+ i 1)]\n"
+                           "     [j 1 (* j 2)]) ((= i 3) j)\n"
+                           "  (body))")
+            (fmt* "(do ([i 0 (+ i 1)] [j 1 (* j 2)]) ((= i 3) j) (body))\n" 40))
+
+;; The two dialect-specific entries in scope.
+(test-equal (string-append "(parameterize ([a 1]\n"
+                           "               [b 2])\n"
+                           "  (body))")
+            (fmt* "(parameterize ([a 1] [b 2]) (body))\n" 22 'r7rs))
+
+(test-equal (string-append "(with-syntax ([a 1]\n"
+                           "              [b 2])\n"
+                           "  (body))")
+            (fmt* "(with-syntax ([a 1] [b 2]) (body))\n" 22 'r6rs))
+
+;; Flat when it fits: a peer list denotes two renderings, not one.
+(test-equal "(let ([a 1] [b 2]) (body))" (fmt* "(let ([a 1] [b 2]) (body))\n" 40))
+
+;; An empty binding list has no alternatives to choose between.
+(test-equal "(let ()\n  (body))" (fmt* "(let () (body))\n" 12))
+
+;; No line ever holds two bindings once the list has broken.
+(test-assert
+  (let ((out (fmt "(let ([alpha 1] [beta 2] [gamma 3] [delta 4]) (body))\n" 24)))
+    (not (or (contains? out "[alpha 1] [beta 2]")
+             (contains? out "[beta 2] [gamma 3]")
+             (contains? out "[gamma 3] [delta 4]")))))
+
+;;; The paths that must not move
+
+;; A clause's first element IS distinguished -- it is the test -- so a clause
+;; keeps the generic shape with that element as head.
+(test-assert (contains? (fmt "(cond ((p x) (f x) (g x)))\n" 30) "((p x) (f x)"))
+
+;; guard's slot is (i . ec*): a nested shape WITH a slot, so it is a clause and
+;; not a peer list.
+(test-assert (contains? (fmt "(guard (e (#t (f e) (g e))) (body))\n" 30) "(e (#t"))
+
+;; A starred terminal in TAIL position was always correct: one clause per line at
+;; the body indent, not aligned at a first element.
+(test-equal (string-append "(cond\n"
+                           "  [(a x) 1]\n"
+                           "  [(b x) 2]\n"
+                           "  [else 3])")
+            (fmt* "(cond [(a x) 1] [(b x) 2] [else 3])\n" 20))
+
+(test-equal (string-append "(case-lambda\n"
+                           "  [(a) 1]\n"
+                           "  [(a b) 2])")
+            (fmt* "(case-lambda [(a) 1] [(a b) 2])\n" 20))
+
+;; A formals list is a peer list whose tail FILLS, so it packs rather than
+;; taking a line per name. That branch is untouched.
+(test-assert
+  (let ((out (fmt "(lambda (alpha beta gamma delta epsilon zeta) (body))\n" 30)))
+    (and (> (line-count out) 2) (contains? out "alpha beta"))))
+
+;; And a form with a real head still pairs the head with its first argument.
+(test-equal (string-append "(some-function aaaa\n"
+                           "               bbbb\n"
+                           "               cccc)")
+            (fmt* "(some-function aaaa bbbb cccc)\n" 20))
+
+(test-end)
+
 (test-exit)

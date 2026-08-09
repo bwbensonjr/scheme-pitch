@@ -602,6 +602,24 @@ alternative — treating a clause as a zero-slot styled form, indenting its body
 from the clause's own delimiter — was rejected on familiarity, and it would have
 cost a second emitter for no gain.
 
+**A binding list is not a clause, and this distinction was learned the hard way.**
+A clause's first element is *distinguished* — it is the test, or `guard`'s
+condition variable — so treating it as a head is right. A binding list
+distinguishes nothing: `([a 1] [b 2] [c 3])` is a list of peers, and the generic
+aligned rendering welds the second element to the first with a space no break may
+be taken at, then staircases the rest off the second element's column. Pitch
+shipped doing exactly that, and the whole suite was green, because
+`style-layout` specified what a starred terminal does in *tail* position and
+nothing about what it does in a *slot*.
+
+So there are three headless renderings, not two, chosen by what the compiled
+shape says rather than by anything about the node: a shape with a slot is a
+clause and takes the generic shape; a shape with no slots and a filling tail
+packs; a shape with no slots and a non-filling tail is a peer list and aligns
+every element, the first included, at the column after the opening delimiter. A
+peer list offers only flat and aligned — hanging exists to separate a head from
+its arguments, and there is no head to separate.
+
 ### Starter table
 
 Neither existing table is a usable corpus: scmindent's 38 names are Common Lisp,

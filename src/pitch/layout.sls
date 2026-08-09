@@ -172,7 +172,7 @@
 ;; the quadratic behaviour of folding string-append.
 (define (concatenate pieces)
   (let* ((total (fold-left (lambda (n s) (+ n (string-length s))) 0 pieces))
-          (out (make-string total)))
+         (out (make-string total)))
     (let loop ((ps pieces) (at 0))
       (if (null? ps)
           out
@@ -191,15 +191,15 @@
 ;; Returns the winning measure and whether it is tainted.
 (define (resolve-document d factory offset)
   (let* ((cost<=? (cost-factory-cost<=? factory))
-          (cost+ (cost-factory-cost+ factory))
-          (cost-text (cost-factory-cost-text factory))
-          (cost-nl (cost-factory-cost-nl factory))
-          (limit (cost-factory-limit factory))
-          (limit+1 (+ limit 1))
-          ;; doc -> (eqv hashtable of packed (index, i, c) -> measure set)
-          (memo (make-eq-hashtable))
-          ;; doc -> four-bit mask of fullness combinations found to have no layout
-          (dynamic-failure (make-eq-hashtable)))
+         (cost+ (cost-factory-cost+ factory))
+         (cost-text (cost-factory-cost-text factory))
+         (cost-nl (cost-factory-cost-nl factory))
+         (limit (cost-factory-limit factory))
+         (limit+1 (+ limit 1))
+         ;; doc -> (eqv hashtable of packed (index, i, c) -> measure set)
+         (memo (make-eq-hashtable))
+         ;; doc -> four-bit mask of fullness combinations found to have no layout
+         (dynamic-failure (make-eq-hashtable)))
 
     (define (known-failing? d index)
       (or (doc-fails-statically? d index)
@@ -231,8 +231,8 @@
         ((null? ms1) ms2)
         ((and (lazy-set? ms1) (lazy-set? ms2))
           (let* ((swap? (< (lazy-set-nl ms1) (lazy-set-nl ms2)))
-                  (keep (if swap? ms2 ms1))
-                  (other (if swap? ms1 ms2)))
+                 (keep (if swap? ms2 ms1))
+                 (other (if swap? ms1 ms2)))
             (if prunable?
                 keep
                 (delayed (lazy-set-nl keep)
@@ -267,8 +267,9 @@
                      (let ((bv (force-set b-ms)))
                        (if (null? bv) '() (list (concat-measure a-m (car bv))))))))
         ((null? b-ms) '())
-        (else (let loop ((best (concat-measure a-m (car b-ms))) (rest (cdr b-ms))
-                                                                (kept '()))
+        (else (let loop ((best (concat-measure a-m (car b-ms)))
+                         (rest (cdr b-ms))
+                         (kept '()))
                 (if (null? rest)
                     (reverse (cons best kept))
                     (let ((current (concat-measure a-m (car rest))))
@@ -284,18 +285,18 @@
           ;; Past the limit the result is lazy and position-dependent in ways
           ;; the key does not capture, so it is not cached.
           ((or (> c limit) (> i limit)) (resolve-taint d c i beg-full? end-full? index))
-          (else
-            (let* ((table (or (hashtable-ref memo d #f)
-                              (let ((fresh (make-eqv-hashtable)))
-                                (hashtable-set! memo d fresh)
-                                fresh))) (key (+ (* (+ (* index limit+1) i) limit+1) c))
-                                         (hit (hashtable-ref table key #f)))
-              ;; A stored value is a list or a lazy-set, never #f, and the empty
-              ;; list is true in Scheme, so absence is unambiguous.
-              (or hit
-                  (let ((computed (resolve-taint d c i beg-full? end-full? index)))
-                    (hashtable-set! table key computed)
-                    computed)))))))
+          (else (let* ((table (or (hashtable-ref memo d #f)
+                                  (let ((fresh (make-eqv-hashtable)))
+                                    (hashtable-set! memo d fresh)
+                                    fresh)))
+                       (key (+ (* (+ (* index limit+1) i) limit+1) c))
+                       (hit (hashtable-ref table key #f)))
+                  ;; A stored value is a list or a lazy-set, never #f, and the empty
+                  ;; list is true in Scheme, so absence is unambiguous.
+                  (or hit
+                      (let ((computed (resolve-taint d c i beg-full? end-full? index)))
+                        (hashtable-set! table key computed)
+                        computed)))))))
 
     ;; The taint boundary. A text is measured by where it ends, everything else
     ;; by where it starts.
@@ -330,21 +331,21 @@
             (define (analyze-left mid-full?)
               (let ((a-ms (resolve a c i beg-full? mid-full?)))
                 (if (lazy-set? a-ms)
-                    (delayed
-                      (doc-nl-cnt d)
-                      (lambda ()
-                        (let ((av (force-set a-ms)))
-                          (if (null? av)
-                              '()
-                              (let* ((a-m (car av)) (bv (extract-at-most-one
-                                                          (resolve b
-                                                                   (measure-last a-m)
-                                                                   i
-                                                                   mid-full?
-                                                                   end-full?))))
-                                (if (null? bv)
-                                    '()
-                                    (list (concat-measure a-m (car bv)))))))))
+                    (delayed (doc-nl-cnt d)
+                             (lambda ()
+                               (let ((av (force-set a-ms)))
+                                 (if (null? av)
+                                     '()
+                                     (let* ((a-m (car av))
+                                            (bv (extract-at-most-one
+                                                  (resolve b
+                                                           (measure-last a-m)
+                                                           i
+                                                           mid-full?
+                                                           end-full?))))
+                                       (if (null? bv)
+                                           '()
+                                           (list (concat-measure a-m (car bv)))))))))
                     ;; Resolving a succeeded, so resolving b succeeds or fails
                     ;; uniformly across the starting columns a offers. That is
                     ;; what licenses pruning to a single tainted candidate.
@@ -373,7 +374,7 @@
           (resolve (doc-nest-d d) c (+ i (doc-nest-n d)) beg-full? end-full?))
 
         ((doc-cost? d) (let ((n (doc-cost-n d))
-                              (ms (resolve (doc-cost-d d) c i beg-full? end-full?)))
+                             (ms (resolve (doc-cost-d d) c i beg-full? end-full?)))
                          (define (bump m)
                            (make-measure (measure-last m)
                                          (cost+ (measure-cost m) n)
@@ -397,8 +398,8 @@
         (else (assertion-violation 'layout "not a document" d))))
 
     (let* ((result (merge (resolve d offset 0 #f #f) (resolve d offset 0 #f #t) #f))
-            (tainted? (lazy-set? result))
-            (final (extract-at-most-one result)))
+           (tainted? (lazy-set? result))
+           (final (extract-at-most-one result)))
       (if (null? final) (raise-layout-failure) (values (car final) tainted?)))))
 
 ;;; Entry points
