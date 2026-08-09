@@ -469,14 +469,17 @@
             (fmt* "(define-record-type <p> (mk x) p? (x px))\n" 40 'r7rs))
 (test-equal "(parameterize ((p 1))\n  (f))" (fmt* "(parameterize ((p 1)) (f))\n" 24 'r7rs))
 (test-equal "(delay\n  (f x))" (fmt* "(delay (f x))\n" 10 'r7rs))
-(test-equal "(define-library (a b)\n  (export c))"
+;; A flush body: define-library uses body0, so its elements sit at the column of
+;; its opening delimiter rather than two in. See the flush-tail group below.
+(test-equal "(define-library (a b)\n(export c))"
             (fmt* "(define-library (a b) (export c))\n" 24 'r7rs))
 (test-equal "(cond-expand\n  (chez 1)\n  (else 2))"
             (fmt* "(cond-expand (chez 1) (else 2))\n" 20 'r7rs))
 
 (test-equal "(define-record-type p\n  (fields x)\n  (protocol q))"
             (fmt* "(define-record-type p (fields x) (protocol q))\n" 30 'r6rs))
-(test-equal "(library (a b)\n  (export c)\n  (import d))"
+;; Likewise library, the R6RS spelling of the same construct.
+(test-equal "(library (a b)\n(export c)\n(import d))"
             (fmt* "(library (a b) (export c) (import d))\n" 24 'r6rs))
 (test-equal "(syntax-case x (else)\n  ((_ y) y))"
             (fmt* "(syntax-case x (else) ((_ y) y))\n" 24 'r6rs))
@@ -630,6 +633,61 @@
 
 ;; A form containing a line comment still has no flat layout at any width.
 (test-assert (> (line-count (fmt "(when a ; note\n b)\n" 10000)) 2))
+
+(test-end)
+
+;;; The zero-indent body
+
+(test-begin "a library body sits flush with its opening delimiter")
+
+(define lib "(library (a b) (export c) (import (rnrs)) (define (c x) (+ x 1)))\n")
+
+;; R6RS. Every body form begins at the column the opening delimiter is at.
+(test-equal (string-append "(library (a b)\n"
+                           "(export c)\n"
+                           "(import (rnrs))\n"
+                           "(define (c x) (+ x 1)))")
+            (fmt* lib 30 'r6rs))
+
+;; R7RS, the same construct under the other spelling.
+(test-equal (string-append "(define-library (a b)\n"
+                           "(export c)\n"
+                           "(import (scheme base))\n"
+                           "(begin (define (c x) x)))")
+            (fmt* (string-append "(define-library (a b) (export c)"
+                                 " (import (scheme base))"
+                                 " (begin (define (c x) x)))\n")
+                  30 'r7rs))
+
+;; The change is confined to the new terminal: an ordinary styled form is still
+;; indented two from its delimiter.
+(test-equal "(when (p x)\n  (f)\n  (g))" (fmt* "(when (p x) (f) (g))\n" 12 'r6rs))
+
+;; Zero *from the delimiter*, not column 0 of the file. These coincide for a
+;; top-level library and this is the case that tells them apart.
+(test-equal (string-append "(begin\n"
+                           "  (library (a b)\n"
+                           "  (export c)\n"
+                           "  (import (rnrs))\n"
+                           "  (define (c x) (+ x 1))))")
+            (fmt* (string-append "(begin " lib ")\n") 30 'r6rs))
+
+;; Forms nested inside a library body indent their own bodies normally, so the
+;; flush tail does not propagate to what it contains: the `define` body sits at
+;; 2 and the `when` body inside it at 4, both measured from their own delimiters.
+(test-equal (string-append "(library (a b)\n"
+                           "(import (rnrs))\n"
+                           "(define (c x)\n"
+                           "  (when x\n"
+                           "    (foo)\n"
+                           "    (bar))))")
+            (fmt* (string-append "(library (a b) (import (rnrs))"
+                                 " (define (c x) (when x (foo) (bar))))\n")
+                  16 'r6rs))
+
+;; Under a dialect with no entry for the head, the generic shape applies and the
+;; body is not flush -- the flush tail comes from the table, not from the name.
+(test-assert (not (contains? (fmt lib 30) "\n(export c)")))
 
 (test-end)
 

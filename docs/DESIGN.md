@@ -750,6 +750,23 @@ body three columns in — what nothing in either community writes. Measuring fro
 the delimiter gives the two columns Emacs and `raco fmt` produce, and it is what
 the hanging shape already did, so neither the constant nor the `nest` changed.
 
+**Amended: there are two indents, and the tail terminal selects between them.**
+`body` and the clause terminals indent 2; `body0` indents 0. It exists for forms
+that wrap a whole compilation unit — `library` and `define-library` — where
+indenting the body costs two columns on every line of a file to mark a nesting
+level that ends at the last line and that nobody can forget. Both remain
+constants of the implementation, measured from the opening delimiter, and the
+configuration surface is still width and dialect: the *terminal* chooses, and a
+style cannot name an indent of its own.
+
+`body0` is not an SRFI 272 terminal, and adding it is the one place pitch extends
+the grammar rather than adopting it. The reason is the layering rule: per-form
+layout knowledge must be data in the style table and must never be a `cond`
+branch on a head symbol, so a rule of the form "this form's body is not
+indented" has nowhere to live except the notation. The grammar stays closed —
+the terminals are a finite enumeration and anything outside it is refused where
+the table is built — and the precedent extends no further than the one terminal.
+
 `pp-max-tab` exists to cap the rightward drift a long keyword causes when a body
 is offset from the keyword rather than from the delimiter. There is no such drift
 here, so the knob has no referent. Both stay constants either way: `README.md`

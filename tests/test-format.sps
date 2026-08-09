@@ -267,6 +267,39 @@
 ;; formatted, and src/pitch/reader.sls is derived from the largest of them and
 ;; carries the same syntax.
 
+(test-begin "the flush library body changes whitespace and nothing else")
+
+(define lib-src
+  "(library (a b) (export c) (import (rnrs)) (define (c x) (+ x 1)))\n")
+
+;; A style change is a whitespace change, and this is the evidence: layer 1
+;; compares token sequences and layer 2 compares data, and neither can observe
+;; which column a line began at. So moving a library body flush passes both.
+(test-equal 'ok
+            (let-values (((text result) (format-source lib-src "test" 30 'r6rs)))
+              (format-result-status result)))
+
+(test-equal 'ok
+            (let-values (((text result)
+                          (format-source
+                            "(define-library (a b) (export c) (import (scheme base)))\n"
+                            "test" 30 'r7rs)))
+              (format-result-status result)))
+
+;; Idempotent at widths that break the body and widths that do not. The fixpoint
+;; argument never depended on the indent's value, but the terminal is new and the
+;; cheapest way to confirm that is to run it.
+(test-assert
+  (for-all (lambda (w)
+             (let-values (((once r1) (format-source lib-src "test" w 'r6rs)))
+               (and (string? once)
+                    (let-values (((twice r2) (format-source once "test" w 'r6rs)))
+                      (and (eq? 'ok (format-result-status r2))
+                           (string=? once twice))))))
+           '(20 30 40 100)))
+
+(test-end)
+
 (test-begin "the in-repo corpus formats and is idempotent")
 
 (define corpus
