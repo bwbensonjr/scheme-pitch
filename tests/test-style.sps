@@ -55,9 +55,10 @@
 ;; i? is a slot terminal too, and needs something after it.
 (test-assert (styled? (style->shape '(_ i? . body))))
 
-;; Each tail rule, in tail position.
+;; Each tail rule, in tail position. body0 is pitch's own; every other terminal
+;; here is SRFI 272's.
 (test-assert (for-all (lambda (t) (styled? (style->shape (cons '_ t))))
-                      '(body fill dc* ec* fc* lc*)))
+                      '(body body0 fill dc* ec* fc* lc*)))
 
 ;; A fmt-tail in a slot position: the subform is itself a list.
 (test-assert (= 1 (length (slots-of '(_ (i . ec*) . body)))))
@@ -67,6 +68,22 @@
 (test-equal 0 (length (slots-of '(_ . body))))
 (test-equal 2 (length (slots-of '(_ e l . dc*))))
 (test-equal 3 (length (slots-of '(_ i h i . body))))
+
+;; body0 is body with the other indent and is otherwise identical: same element
+;; style, same one-per-line, same slot handling.
+(test-equal flush-indent (tail-indent (tail-of '(_ d . body0))))
+(test-equal hanging-indent (tail-indent (tail-of '(_ d . body))))
+(test-equal (tail-style (tail-of '(_ d . body)))
+            (tail-style (tail-of '(_ d . body0))))
+(test-equal (tail-fill? (tail-of '(_ d . body)))
+            (tail-fill? (tail-of '(_ d . body0))))
+(test-equal 2 (length (slots-of '(_ i d . body0))))
+
+;; Every other terminal keeps the indented value; the indent varies with the
+;; terminal and with nothing else.
+(test-assert (for-all (lambda (t)
+                        (= hanging-indent (tail-indent (tail-of (cons '_ t)))))
+                      '(body fill dc* ec* fc* lc*)))
 
 (test-end)
 
@@ -202,6 +219,22 @@
 (test-assert (styled? (style-table-ref r7rs-style-table 'define-library)))
 (test-equal #f (style-table-ref r6rs-style-table 'define-library))
 (test-equal #f (style-table-ref core-style-table 'library))
+
+;; Both library forms use the flush tail. They are one construct under two
+;; spellings, each wrapping a whole compilation unit, so styling one flush and
+;; the other indented would make the dialects disagree about the same thing.
+(test-equal flush-indent
+            (tail-indent (styled-tail (style-table-ref r6rs-style-table 'library))))
+(test-equal flush-indent
+            (tail-indent
+              (styled-tail (style-table-ref r7rs-style-table 'define-library))))
+
+;; And nothing else moved with them -- forms that appear inside a library body
+;; keep the indented tail.
+(test-equal hanging-indent
+            (tail-indent (styled-tail (style-table-ref core-style-table 'define))))
+(test-equal hanging-indent
+            (tail-indent (styled-tail (style-table-ref core-style-table 'import))))
 
 (test-assert (eq? core-style-table (dialect-style-table 'common)))
 (test-assert (eq? r6rs-style-table (dialect-style-table 'r6rs)))

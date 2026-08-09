@@ -21,28 +21,28 @@
 #!r6rs
 
 (library (pitch diagnostic)
-  (export
-    make-diagnostic diagnostic? diagnostic-message diagnostic-token diagnostic-line
-    diagnostic-column sort-diagnostics)
-  (import
-    (rnrs base (6))
-    (rnrs records syntactic (6))
-    (rnrs sorting (6))
-    (only (pitch reader) token-start token-start-line token-start-column))
+(export
+  make-diagnostic diagnostic? diagnostic-message diagnostic-token diagnostic-line
+  diagnostic-column sort-diagnostics)
+(import
+  (rnrs base (6))
+  (rnrs records syntactic (6))
+  (rnrs sorting (6))
+  (only (pitch reader) token-start token-start-line token-start-column))
 
-  (define-record-type diagnostic
-    (fields message token)
-    (sealed #t)
-    (opaque #f)
-    (nongenerative diagnostic-v0-1f852e10-4345-44ca-b2df-b8bb8df8fced))
+(define-record-type diagnostic
+  (fields message token)
+  (sealed #t)
+  (opaque #f)
+  (nongenerative diagnostic-v0-1f852e10-4345-44ca-b2df-b8bb8df8fced))
 
-  (define (diagnostic-line d) (token-start-line (diagnostic-token d)))
-  (define (diagnostic-column d) (token-start-column (diagnostic-token d)))
+(define (diagnostic-line d) (token-start-line (diagnostic-token d)))
+(define (diagnostic-column d) (token-start-column (diagnostic-token d)))
 
-  ;; Source order. Every diagnostic is anchored to a token, and token start
-  ;; offsets are strictly increasing, so this is a total order.
-  (define (sort-diagnostics ds)
-    (list-sort
-      (lambda (a b)
-        (< (token-start (diagnostic-token a)) (token-start (diagnostic-token b))))
-      ds)))
+;; Source order. Every diagnostic is anchored to a token, and token start
+;; offsets are strictly increasing, so this is a total order.
+(define (sort-diagnostics ds)
+  (list-sort
+    (lambda (a b)
+      (< (token-start (diagnostic-token a)) (token-start (diagnostic-token b))))
+    ds)))
