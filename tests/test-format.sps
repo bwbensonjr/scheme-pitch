@@ -25,24 +25,32 @@
   (except (rnrs (6)) newline)
   (pitch format)
   (pitch check)
+  (pitch config)
+  (tests config)
   (tests runner))
 
 ;;; Helpers
 
-(define (status src . width)
-  (let-values (((text result) (apply format-source src "test" width)))
+(define (settings->config settings)
+  (make-test-config (if (null? settings) 88 (car settings))
+                    (if (or (null? settings) (null? (cdr settings)))
+                        'common
+                        (cadr settings))))
+
+(define (status src . settings)
+  (let-values (((text result) (format-source src "test" (settings->config settings))))
     (format-result-status result)))
 
-(define (text-of src . width)
-  (let-values (((text result) (apply format-source src "test" width)))
+(define (text-of src . settings)
+  (let-values (((text result) (format-source src "test" (settings->config settings))))
     text))
 
-(define (tainted? src . width)
-  (let-values (((text result) (apply format-source src "test" width)))
+(define (tainted? src . settings)
+  (let-values (((text result) (format-source src "test" (settings->config settings))))
     (format-result-tainted? result)))
 
-(define (detail-of src . width)
-  (let-values (((text result) (apply format-source src "test" width)))
+(define (detail-of src . settings)
+  (let-values (((text result) (format-source src "test" (settings->config settings))))
     (format-result-detail result)))
 
 ;; Lines of content. Every formatted file ends with a newline, and counting the
@@ -101,6 +109,28 @@
 ;; Already-formatted input comes back unchanged.
 (test-equal "(f a b)\n" (text-of "(f a b)\n"))
 (test-equal "(a ; note\n  b)\n" (text-of "(a ; note\n  b)\n"))
+
+(test-end)
+
+(test-begin "configured styles affect only translation whitespace")
+
+(define project-config
+  (make-test-config-with
+    "(pitch-config 1 (styles common ((project-let) (_ fc* . body))))"
+    18
+    'common))
+(define project-src "(project-let ((x 1) (y 2)) (f x) (g y))\n")
+(let-values (((configured result) (format-source project-src "test" project-config)))
+  (test-equal 'ok (format-result-status result))
+  (test-assert (checks-pass? project-src configured))
+  (test-assert (not (string=? configured (text-of project-src 18 'common)))))
+
+;; Configuration never changes parser acceptance or token spelling.
+(let-values (((text result) (format-source "(project-let" "test" project-config)))
+  (test-equal 'unclean-parse (format-result-status result)))
+(let-values (((text result) (format-source "(project-let #xff)\n" "test" project-config)))
+  (test-equal 'ok (format-result-status result))
+  (test-assert (contains? text "#xff")))
 
 (test-end)
 
@@ -201,8 +231,7 @@
 (test-equal (text-of drt 40) (text-of drt 40 'common))
 
 ;; An unknown dialect raises, and raises before an unclean parse could mask it.
-(test-assert (raises? (lambda () (format-source "(a)\n" "test" 40 'r5rs))))
-(test-assert (raises? (lambda () (format-source "(a" "test" 40 'r5rs))))
+(test-assert (raises? (lambda () (make-test-config 40 'r5rs))))
 
 (test-end)
 
@@ -276,14 +305,16 @@
 ;; compares token sequences and layer 2 compares data, and neither can observe
 ;; which column a line began at. So moving a library body flush passes both.
 (test-equal 'ok
-            (let-values (((text result) (format-source lib-src "test" 30 'r6rs)))
+            (let-values (((text result)
+                          (format-source lib-src "test" (make-test-config 30 'r6rs))))
               (format-result-status result)))
 
 (test-equal 'ok
             (let-values (((text result)
                           (format-source
                             "(define-library (a b) (export c) (import (scheme base)))\n"
-                            "test" 30 'r7rs)))
+                            "test"
+                            (make-test-config 30 'r7rs))))
               (format-result-status result)))
 
 ;; Idempotent at widths that break the body and widths that do not. The fixpoint
@@ -291,9 +322,12 @@
 ;; cheapest way to confirm that is to run it.
 (test-assert
   (for-all (lambda (w)
-             (let-values (((once r1) (format-source lib-src "test" w 'r6rs)))
+             (let-values (((once r1)
+                           (format-source lib-src "test" (make-test-config w 'r6rs))))
                (and (string? once)
-                    (let-values (((twice r2) (format-source once "test" w 'r6rs)))
+                    (let-values (((twice r2)
+                                  (format-source once "test"
+                                                 (make-test-config w 'r6rs))))
                       (and (eq? 'ok (format-result-status r2))
                            (string=? once twice))))))
            '(20 30 40 100)))
@@ -320,13 +354,13 @@
 
 (define (corpus-check path dialect)
   (let ((source (file-contents path)))
-    (let-values (((once result) (format-source source path default-page-width
-                                               dialect)))
+    (let-values (((once result)
+                  (format-source source path (make-test-config 88 dialect))))
       (test-equal 'ok (format-result-status result))
       (when (string? once)
         ;; Idempotent, and the second pass is clean too.
-        (let-values (((twice result2) (format-source once path
-                                                     default-page-width dialect)))
+        (let-values (((twice result2)
+                      (format-source once path (make-test-config 88 dialect))))
           (test-equal 'ok (format-result-status result2))
           (test-equal once twice))))))
 

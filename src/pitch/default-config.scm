@@ -1,0 +1,36 @@
+;; Pitch's shipped defaults. This is data, not a Scheme program: pitch parses
+;; it with its own lossless reader and never evaluates it.
+(pitch-config 1
+  (width 88)
+  (dialect common)
+  (styles common
+    ((define) (_ h . body))
+    ((define-syntax) (_ i . body))
+    ((lambda) (_ f . body))
+    ((case-lambda) (_ . fc*))
+    ((let) (_ i? fc* . body))
+    ((let* letrec letrec* let-values let*-values let-syntax letrec-syntax)
+     (_ fc* . body))
+    ((when unless) (_ e . body))
+    ((cond) (_ . ec*))
+    ((case) (_ e . lc*))
+    ((begin) (_ . body))
+    ((do) (_ fc* ec . body))
+    ((guard) (_ (i . ec*) . body))
+    ((set!) (_ i . body))
+    ((syntax-rules) (_ l . dc*))
+    ((import) (_ . body))
+    ((export) (_ . fill)))
+  (styles r7rs
+    ((define-values) (_ f . body))
+    ((define-record-type) (_ i h i . body))
+    ((parameterize) (_ fc* . body))
+    ((delay delay-force make-promise) (_ . body))
+    ((define-library) (_ d . body0))
+    ((cond-expand) (_ . ec*)))
+  (styles r6rs
+    ((define-record-type) (_ i . body))
+    ((library) (_ d . body0))
+    ((syntax-case) (_ e l . dc*))
+    ((with-syntax) (_ fc* . body))
+    ((assert) (_ . body))))

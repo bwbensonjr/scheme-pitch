@@ -3,21 +3,18 @@
 ## Purpose
 
 The program's surface: what it accepts, when it validates, and what it refuses to
-grow into. The option set is closed at width and dialect, and closed is a
-commitment rather than a description of the present -- no configuration file, no
-second way to select a style table, nothing that lets a caller vary what the
-formatter is not permitted to vary. Every option value is parsed and checked
-before a file is opened, so an unknown dialect fails the invocation instead of
-escaping from inside the per-file loop and abandoning a half-processed run. An
-invocation naming no input is a usage error, not a read of standard input: the
-exit status is the only channel a script reads, and a formatter that exits 0 over
-an empty file list reports a clean run over nothing. `--help` and the bare
-invocation print the same text to opposite streams under opposite statuses, and
-that contrast is the reason both exist. The command line is a driver over a host,
-taking an argument list and returning a status rather than terminating the
-process, so that the behaviors that matter -- a refused file is not written, an
-unchanged file is not written -- are asserted against memory instead of a real
-filesystem.
+grow into. The option set admits one explicitly named inert configuration plus
+width and dialect overrides, but remains closed against implicit discovery and
+knobs that weaken formatter invariants. Argument-list errors are resolved before
+configuration or source reads. An invocation naming no input is a usage error,
+not a read of standard input: the exit status is the only channel a script reads,
+and a formatter that exits 0 over an empty file list reports a clean run over
+nothing. `--help` and the bare invocation print the same text to opposite streams
+under opposite statuses, and that contrast is the reason both exist. The command
+line is a driver over a host, taking an argument list and returning a status
+rather than terminating the process, so that the behaviors that matter -- a
+refused file is not written, an unchanged file is not written -- are asserted
+against memory instead of a real filesystem.
 ## Requirements
 
 ### Requirement: The command line accepts a closed set of options
@@ -29,31 +26,46 @@ and no others:
 |---|---|
 | `--stdout` | write formatted text to standard output instead of rewriting files |
 | `--check` | write nothing; report whether any input would change |
-| `--width N` | page width, a positive exact integer, defaulting to 88 |
-| `--dialect D` | one of `common`, `r6rs`, `r7rs`, defaulting to `common` |
+| `--config PATH` | overlay the shipped defaults with the named configuration file |
+| `--width N` | page width, a positive exact integer overriding configuration |
+| `--dialect D` | one of `common`, `r6rs`, `r7rs`, overriding configuration |
 | `--help` | write usage to standard output |
 | `--version` | write the version to standard output |
 
-The option set SHALL be closed. Configuration is bounded at width and dialect,
-and no option SHALL be added that reads a configuration file, selects a style
-table by any other means, or controls anything the formatter is not permitted to
-vary.
+The option set SHALL be closed. Configuration SHALL be bounded by the
+`configuration-loading` schema; no option SHALL be added that weakens a safety
+check, permits a normalization, reorders code, changes comment contents, or
+executes configuration as code.
 
-An unrecognized option SHALL be a usage error. An option requiring a value that
-is given none SHALL be a usage error.
+At most one `--config` SHALL be accepted. An unrecognized option, a repeated
+`--config`, or an option requiring a value that is given none SHALL be a usage
+error.
 
 #### Scenario: The defaults apply when no option is given
 
 - **WHEN** the program is invoked with a single file operand and no options
-- **THEN** the file is formatted at width 88 under the shared core dialect
+- **THEN** the shipped default configuration is loaded
+- **AND** the file is formatted at width 88 under the shared core dialect
 - **AND** the file is rewritten in place
+
+#### Scenario: A configuration file supplies invocation settings
+
+- **WHEN** the program is invoked with `--config project/pitch.scm` and a file
+  operand
+- **THEN** that file overlays the shipped configuration for the invocation
+
+#### Scenario: A repeated configuration option is a usage error
+
+- **WHEN** the program is invoked with two `--config` options
+- **THEN** it exits with the usage-error status
+- **AND** no configuration or source file is read
 
 #### Scenario: An unknown option is a usage error
 
 - **WHEN** the program is invoked with `--verbose`
 - **THEN** it reports the unknown option on standard error
 - **AND** it exits with the usage-error status
-- **AND** no file is read and no file is written
+- **AND** no configuration or source file is read or written
 
 #### Scenario: An option missing its value is a usage error
 

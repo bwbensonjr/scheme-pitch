@@ -8,7 +8,7 @@
 ;; it. SRFI 272 is a datum printer that explicitly leaves its layout algorithm
 ;; unspecified, which is the one property pitch sells, so what a terminal
 ;; *renders as* is decided in (pitch print) and specified in style-layout. What
-;; lives here is the grammar, its validation, and the tables:
+;; lives here is the grammar, its validation, and table construction:
 ;;
 ;;   ⟨style⟩    ⟶ (⟨_⟩ . ⟨fmt-tail⟩)
 ;;   ⟨fmt-tail⟩ ⟶ body | body0 | fill | dc* | ec* | fc* | lc*
@@ -21,7 +21,7 @@
 ;; and anything outside it is refused where the table is built.
 ;;
 ;; It is here because a rule about how a particular form is laid out has to be
-;; expressible as *data*. CLAUDE.md prohibits per-form layout rules that branch
+;; expressible as *data*. AGENTS.md prohibits per-form layout rules that branch
 ;; on a head symbol, so given a form whose body is not indented, the notation is
 ;; the only place that rule can live; the choice was never "extend SRFI 272 or
 ;; don't" but "extend the notation or violate the layering invariant". The cost
@@ -55,13 +55,10 @@
 ;; (pitch doc) nor (pitch reader). It maps a symbol to an inert descriptor and
 ;; knows about neither trees nor documents, so a table cannot contain a document
 ;; or a procedure -- it cannot name one. Adding, changing or removing a per-form
-;; rule is an edit to an entry below and touches no emitter.
+;; rule is an edit to configuration data and touches no emitter.
 ;;
-;; A malformed style raises where the table is built, at library
-;; initialization. That is a programmer error in pitch's own data rather than a
-;; property of anyone's input, so it must surface where the mistake is, and
-;; validating at load means every entry is exercised on every run whatever
-;; source is being formatted.
+;; A malformed style raises where the table is built. Configuration catches and
+;; reports that condition before any source is formatted.
 
 #!r6rs
 
@@ -76,8 +73,7 @@
   ;; the indents a tail terminal selects between
   hanging-indent flush-indent
   ;; tables
-  make-style-table style-table? style-table-ref dialect-style-table core-style-table
-  r6rs-style-table r7rs-style-table)
+  make-style-table extend-style-table style-table? style-table-ref)
 (import
   (rnrs base (6))
   (rnrs control (6))
@@ -139,12 +135,12 @@
 ;; this pp-tab and measures it from the start of the form's keyword; measuring
 ;; from the delimiter instead is what every Scheme community actually writes,
 ;; and it is also why SRFI 272's pp-max-tab has no referent here -- there is no
-;; keyword-relative drift to cap. Both are constants rather than configuration:
-;; README.md says the configuration surface is width and dialect, and neither
-;; of these is either.
+;; keyword-relative drift to cap. Both are constants rather than configuration.
+;; The external schema exposes per-form styles but deliberately does not expose
+;; terminal semantics.
 ;;
-;; There are two, and the tail terminal selects between them; nothing else
-;; does. flush-indent exists for forms that wrap a whole compilation unit,
+;; There are two, and the tail terminal selects between them; nothing else does.
+;; flush-indent exists for forms that wrap a whole compilation unit,
 ;; where indenting the body costs two columns on every line of a file to mark
 ;; a nesting level that ends at the last line and nobody can forget.
 ;;
@@ -187,7 +183,7 @@
 ;;
 ;; body0 is the one terminal here that is not SRFI 272's. It is body with the
 ;; other indent, and it exists because a rule about how a form is laid out has
-;; to be expressible as data: CLAUDE.md prohibits per-form layout rules that
+;; to be expressible as data: AGENTS.md prohibits per-form layout rules that
 ;; branch on a head symbol, so "this form's body is not indented" has nowhere
 ;; else to live. See the grammar note in the library header.
 (define (terminal-tail name)
@@ -256,65 +252,16 @@
 
 (define (make-style-table entries) (bindings->table (compile-entries entries)))
 
+;; Return an immutable copy of base after deleting heads and applying entries.
+;; Configuration consumes its `remove` marker before this boundary, so the
+;; style grammar remains exactly the closed grammar above.
+(define (extend-style-table base entries removals)
+  (let ((h (hashtable-copy base #t)))
+    (for-each (lambda (head) (hashtable-delete! h head)) removals)
+    (for-each (lambda (binding) (hashtable-set! h (car binding) (cdr binding)))
+              (compile-entries entries))
+    (hashtable-copy h)))
+
 (define (style-table? x) (hashtable? x))
 
-(define (style-table-ref tbl head) (hashtable-ref tbl head #f))
-
-;;; The entries
-;;
-;; `if`, `and` and `or` are deliberately absent. What everyone writes for all
-;; three is the first argument on the opening line with the rest aligned under
-;; it, and that is precisely the generic shape, so an entry would make their
-;; output worse rather than better.
-
-(define core-entries
-  '(;; binding
-     ((define) (_ h . body))
-     ((define-syntax) (_ i . body))
-     ((lambda) (_ f . body))
-     ((case-lambda) (_ . fc*))
-     ((let) (_ i? fc* . body))
-     ((let* letrec letrec* let-values let*-values let-syntax letrec-syntax)
-       (_ fc* . body))
-     ;; control
-     ((when unless) (_ e . body))
-     ((cond) (_ . ec*))
-     ((case) (_ e . lc*))
-     ((begin) (_ . body))
-     ((do) (_ fc* ec . body))
-     ((guard) (_ (i . ec*) . body))
-     ((set!) (_ i . body))
-     ;; macro and library
-     ((syntax-rules) (_ l . dc*))
-     ((import) (_ . body))
-     ((export) (_ . fill))))
-
-(define r7rs-entries
-  '(((define-values) (_ f . body)) ((define-record-type) (_ i h i . body))
-                                   ((parameterize) (_ fc* . body))
-                                   ((delay delay-force make-promise) (_ . body))
-                                   ((define-library) (_ d . body0))
-                                   ((cond-expand) (_ . ec*))))
-
-(define r6rs-entries
-  '(((define-record-type) (_ i . body)) ((library) (_ d . body0))
-                                        ((syntax-case) (_ e l . dc*))
-                                        ((with-syntax) (_ fc* . body))
-                                        ((assert) (_ . body))))
-
-(define core-bindings (compile-entries core-entries))
-
-(define core-style-table (bindings->table core-bindings))
-(define r7rs-style-table
-  (bindings->table (append core-bindings (compile-entries r7rs-entries))))
-(define r6rs-style-table
-  (bindings->table (append core-bindings (compile-entries r6rs-entries))))
-
-;; A dialect at this layer selects a style table and nothing else. An unknown
-;; symbol comes from a caller rather than from a file, so it raises.
-(define (dialect-style-table dialect)
-  (case dialect
-    ((common) core-style-table)
-    ((r7rs) r7rs-style-table)
-    ((r6rs) r6rs-style-table)
-    (else (assertion-violation 'dialect-style-table "Not a dialect" dialect)))))
+(define (style-table-ref tbl head) (hashtable-ref tbl head #f)))

@@ -44,12 +44,12 @@
   (rnrs conditions (6))
   (rnrs records syntactic (6))
   (only (rnrs io ports (6)) put-string get-string-all eof-object?)
-  (only (pitch format)
-        format-source
-        format-result-status
-        format-result-detail
-        default-page-width
-        default-dialect)
+  (only (pitch format) format-source format-result-status format-result-detail)
+  (only (pitch config)
+        parse-config
+        resolve-config
+        config-condition?
+        config-condition-path)
   (only (pitch diagnostic)
         diagnostic-message
         diagnostic-line
@@ -140,8 +140,9 @@
      "options:"
      "  --stdout        write formatted text to standard output, rewriting nothing"
      "  --check         write nothing; fail if any input would change"
-     "  --width N       page width (default 88)"
-     "  --dialect D     common, r6rs, or r7rs (default common)"
+     "  --config PATH   overlay the shipped configuration"
+     "  --width N       override the configured page width"
+     "  --dialect D     override the configured dialect: common, r6rs, or r7rs"
      "  --help          show this message"
      "  --version       show the version"
      ""
@@ -155,14 +156,15 @@
 ;;; Options
 ;;
 ;; disposition  one of in-place, stdout, check
-;; width        a positive exact integer
-;; dialect      common, r6rs or r7rs
+;; config-path  #f or the one explicitly named user configuration
+;; width        #f or an explicitly supplied positive exact integer
+;; dialect      #f or an explicitly supplied common, r6rs or r7rs
 ;; source       either the symbol stdin, or a list of operand paths
 (define-record-type options
-  (fields disposition width dialect source)
+  (fields disposition config-path width dialect source)
   (sealed #t)
   (opaque #f)
-  (nongenerative options-v0-0d5c8b74-3e19-4a6f-b2c1-57ff9e0a4d38))
+  (nongenerative options-v1-722eb25c-e7b6-4269-95fa-5f5e214954a5))
 
 ;;; Argument parsing
 ;;
@@ -174,45 +176,50 @@
 ;;   no-input     the invocation named nothing to format
 ;;   usage-error  the payload is the message to print
 ;;
-;; EVERY OPTION VALUE IS VALIDATED HERE, BEFORE ANY FILE IS OPENED. For --width
-;; that is ordinary hygiene. For --dialect it is a correctness requirement:
-;; dialect-style-table *raises* on a symbol naming no dialect, and left to the
-;; per-file loop that condition would escape as an unhandled exception after
-;; some files had already been rewritten -- a backtrace instead of a message,
-;; with the run in a state nobody can reason about. Checking the name here turns
-;; a static property of the invocation into a message and an untouched tree.
+;; EVERY OPTION VALUE IS VALIDATED HERE, BEFORE ANY FILE IS OPENED. Width and
+;; dialect remain explicit CLI overrides; their configured defaults are not
+;; consulted until the complete invocation has passed these static checks.
 (define (parse-arguments args)
   (let loop ((args args)
              (disposition #f)
-             (width default-page-width)
-             (dialect default-dialect)
+             (config-path #f)
+             (width #f)
+             (dialect #f)
              (operands '())
              (literal? #f))
     (if
       (null? args)
-      (finish disposition width dialect (reverse operands))
+      (finish disposition config-path width dialect (reverse operands))
       (let ((arg (car args)) (rest (cdr args)))
         (cond
           ;; Everything after -- is an operand whatever it looks like, which
           ;; is how a file whose name begins with a dash is reachable.
-          (literal? (loop rest disposition width dialect (cons arg operands) #t))
-          ((string=? arg "--") (loop rest disposition width dialect operands #t))
+          (literal?
+            (loop rest disposition config-path width dialect (cons arg operands) #t))
+          ((string=? arg "--")
+            (loop rest disposition config-path width dialect operands #t))
           ((string=? arg "--help") (values 'help #f))
           ((string=? arg "--version") (values 'version #f))
           ((string=? arg "--stdout")
             (if (eq? disposition 'check)
                 (values 'usage-error "--stdout and --check name incompatible outcomes")
-                (loop rest 'stdout width dialect operands #f)))
+                (loop rest 'stdout config-path width dialect operands #f)))
           ((string=? arg "--check")
             (if (eq? disposition 'stdout)
                 (values 'usage-error "--stdout and --check name incompatible outcomes")
-                (loop rest 'check width dialect operands #f)))
+                (loop rest 'check config-path width dialect operands #f)))
+          ((string=? arg "--config")
+            (cond
+              ((null? rest) (values 'usage-error "--config requires a value"))
+              (config-path (values 'usage-error "--config may be given only once"))
+              (else
+                (loop (cdr rest) disposition (car rest) width dialect operands #f))))
           ((string=? arg "--width")
             (if (null? rest)
                 (values 'usage-error "--width requires a value")
                 (let ((w (string->number (car rest))))
                   (if (and w (integer? w) (exact? w) (positive? w))
-                      (loop (cdr rest) disposition w dialect operands #f)
+                      (loop (cdr rest) disposition config-path w dialect operands #f)
                       (values 'usage-error
                               (string-append "--width wants a positive whole"
                                              " number, got "
@@ -222,7 +229,7 @@
                 (values 'usage-error "--dialect requires a value")
                 (let ((d (parse-dialect (car rest))))
                   (if d
-                      (loop (cdr rest) disposition width d operands #f)
+                      (loop (cdr rest) disposition config-path width d operands #f)
                       (values 'usage-error
                               (string-append "--dialect wants common, r6rs or"
                                              " r7rs, got "
@@ -232,7 +239,13 @@
           ;; we know.
           ((and (> (string-length arg) 1) (char=? (string-ref arg 0) #\-))
             (values 'usage-error (string-append "unknown option " arg)))
-          (else (loop rest disposition width dialect (cons arg operands) #f)))))))
+          (else (loop rest
+                      disposition
+                      config-path
+                      width
+                      dialect
+                      (cons arg operands)
+                      #f)))))))
 
 (define (parse-dialect s)
   (cond
@@ -246,7 +259,7 @@
 ;; Standard input is named or it is not used. The absence of an operand never
 ;; selects it: see run-cli's no-input case for why that is a failure rather than
 ;; a stream.
-(define (finish disposition width dialect operands)
+(define (finish disposition config-path width dialect operands)
   (let ((names-stdin? (member "-" operands)))
     (cond
       ;; -- with any other operand would put two dispositions in one run,
@@ -255,15 +268,20 @@
       ((and names-stdin? (not (null? (cdr operands))))
         (values 'usage-error "- cannot be combined with another operand"))
       ((or names-stdin? (and (null? operands) (eq? disposition 'stdout)))
-        (values 'options (make-options (or disposition 'stdout) width dialect 'stdin)))
+        (values
+          'options
+          (make-options (or disposition 'stdout) config-path width dialect 'stdin)))
       ((null? operands) (values 'no-input #f))
-      (else (values
-              'options
-              (make-options (or disposition 'in-place) width dialect operands))))))
+      (else (values 'options
+                    (make-options (or disposition 'in-place)
+                                  config-path
+                                  width
+                                  dialect
+                                  operands))))))
 
 ;;; The entry point
 
-(define (run-cli args host)
+(define (run-cli args host default-config-path)
   (let-values (((outcome payload) (parse-arguments args)))
     (case outcome
       ;; The explicit request, and it succeeds: standard output, status 0, no
@@ -282,25 +300,68 @@
       ((usage-error) (report host "pitch: " payload)
                      (report host "try `pitch --help'")
                      status-usage)
-      (else (run-options payload host)))))
+      (else (let-values (((ok? config-or-message)
+                           (load-configuration payload host default-config-path)))
+              (if ok?
+                  (run-options payload host config-or-message)
+                  (begin (report host "pitch: " config-or-message) status-usage)))))))
 
-(define (run-options opts host)
+(define (run-options opts host config)
   (if (eq? (options-source opts) 'stdin)
-      (run-stdin opts host)
+      (run-stdin opts host config)
       (fold-left
-        (lambda (status operand) (worse status (run-operand opts host operand)))
+        (lambda (status operand) (worse status (run-operand opts host config operand)))
         status-ok
         (options-source opts))))
+
+;;; Configuration preflight
+
+(define (read-config-text host path)
+  (let-values (((ok? value) (attempt (lambda () ((host-read-file host) path)))))
+    (if ok?
+        (values #t value)
+        (values #f
+                (string-append path
+                               ": cannot read configuration: "
+                               (condition-text value))))))
+
+(define (load-configuration opts host default-path)
+  (let-values (((default-ok? default-text) (read-config-text host default-path)))
+    (if (not default-ok?)
+        (values #f default-text)
+        (let-values (((user-ok? user-text)
+                       (if (options-config-path opts)
+                           (read-config-text host (options-config-path opts))
+                           (values #t #f))))
+          (if (not user-ok?)
+              (values #f user-text)
+              (guard (con ((config-condition? con)
+                            (values #f
+                                    (string-append (config-condition-path con)
+                                                   ": "
+                                                   (condition-text con))))
+                          (else (values #f
+                                        (string-append default-path
+                                                       ": invalid configuration: "
+                                                       (condition-text con)))))
+                (let ((defaults (parse-config default-text default-path))
+                      (user (and user-text
+                                 (parse-config user-text (options-config-path opts)))))
+                  (values #t
+                          (resolve-config defaults
+                                          user
+                                          (options-width opts)
+                                          (options-dialect opts))))))))))
 
 ;;; Standard input
 ;;
 ;; In-place is meaningless for a stream, so the disposition degrades to stdout
 ;; rather than the invocation being rejected. --check stays --check.
-(define (run-stdin opts host)
+(define (run-stdin opts host config)
   (let* ((raw (get-string-all (host-stdin host)))
          (text (if (eof-object? raw) "" raw))
          (disposition (if (eq? (options-disposition opts) 'check) 'check 'stdout)))
-    (format-one opts host "<stdin>" text disposition)))
+    (format-one opts host config "<stdin>" text disposition)))
 
 ;;; Operands
 ;;
@@ -312,16 +373,17 @@
 ;; Every operand is processed whatever an earlier one did. An editor formatting
 ;; a project and a hook formatting a changeset both need the good files done and
 ;; the bad ones named; stopping at the first failure gives them neither.
-(define (run-operand opts host operand)
+(define (run-operand opts host config operand)
   (cond
     (((host-directory? host) operand)
-      (fold-left (lambda (status path) (worse status (format-file opts host path)))
-                 status-ok
-                 (walk host operand)))
+      (fold-left
+        (lambda (status path) (worse status (format-file opts host config path)))
+        status-ok
+        (walk host operand)))
     (((host-file-exists? host) operand)
       ;; A file named explicitly is formatted whatever it is called: the user
       ;; naming it is a stronger signal than its suffix.
-      (format-file opts host operand))
+      (format-file opts host config operand))
     (else (report host "pitch: " operand ": no such file or directory") status-usage)))
 
 ;;; Directory discovery
@@ -383,19 +445,18 @@
 ;;; The per-input driver
 ;;
 ;; One call site for the pipeline, so the three dispositions cannot drift apart.
-(define (format-file opts host path)
+(define (format-file opts host config path)
   (let-values (((ok? text) (attempt (lambda () ((host-read-file host) path)))))
     (if (not ok?)
         (begin
           (report host "pitch: " path ": cannot read: " (condition-text text))
           status-usage)
-        (format-one opts host path text (options-disposition opts)))))
+        (format-one opts host config path text (options-disposition opts)))))
 
 (define (attempt thunk) (guard (con (#t (values #f con))) (values #t (thunk))))
 
-(define (format-one opts host path text disposition)
-  (let-values (((output result)
-                 (format-source text path (options-width opts) (options-dialect opts))))
+(define (format-one opts host config path text disposition)
+  (let-values (((output result) (format-source text path config)))
     ;; format-result-tainted? is deliberately never consulted. Taint is a
     ;; withdrawn minimality claim, not a defect: the text is complete and
     ;; verified by the output checks like any other, and its usual cause is a

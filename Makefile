@@ -70,6 +70,7 @@ test:
 	@$(CHEZ) --libdirs $(LIBDIRS) --program tests/test-doc.sps
 	@$(CHEZ) --libdirs $(LIBDIRS) --program tests/test-layout.sps
 	@$(CHEZ) --libdirs $(LIBDIRS) --program tests/test-style.sps
+	@$(CHEZ) --libdirs $(LIBDIRS) --program tests/test-config.sps
 	@$(CHEZ) --libdirs $(LIBDIRS) --program tests/test-print.sps
 	@$(CHEZ) --libdirs $(LIBDIRS) --program tests/test-format.sps
 	@$(CHEZ) --libdirs $(LIBDIRS) --program tests/test-cli.sps
@@ -106,7 +107,8 @@ bin/pitch:
 # checkout moves or is deleted.
 install:
 	@mkdir -p '$(DESTDIR)$(PREFIX)/lib/pitch/pitch' '$(DESTDIR)$(PREFIX)/bin'
-	@cp src/pitch/*.sls src/pitch/*.sps '$(DESTDIR)$(PREFIX)/lib/pitch/pitch/'
+	@cp src/pitch/*.sls src/pitch/*.sps src/pitch/default-config.scm \
+	  '$(DESTDIR)$(PREFIX)/lib/pitch/pitch/'
 	@printf '#!/bin/sh\nexec %s --libdirs %s --program %s "$$@"\n' \
 	  '$(CHEZ)' '$(PREFIX)/lib/pitch' '$(PREFIX)/lib/pitch/pitch/main.sps' \
 	  > '$(DESTDIR)$(PREFIX)/bin/pitch'

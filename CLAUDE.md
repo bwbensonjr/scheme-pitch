@@ -40,15 +40,18 @@ if its tests pass.
   rejects input on dialect grounds. Dialect affects output, not acceptance.
 - Style tables are data, not code. Per-form layout rules go in the SRFI 272
   style grammar, not in `cond` branches on head symbols.
+- Configuration is inert, versioned data limited to width, dialect, and
+  declarative per-form styles. It is fully validated before any source I/O.
 - Malformed input is refused, not guessed at. Pitch exits non-zero and leaves
   the file untouched rather than emitting a repair.
 
 ## Non-goals
 
-Pitch never reorders code, never rewrites comment contents, and does not grow
-configuration beyond width and dialect. These are prohibitions. Existing Lisp
-formatters that sort definitions or drop comments are cautionary examples, not
-precedents.
+Pitch never reorders code and never rewrites comment contents. Configuration
+never disables a safety check, adds a normalization, changes token spelling or
+comment contents, alters terminal indentation, or executes code. These are
+prohibitions. Existing Lisp formatters that sort definitions or drop comments
+are cautionary examples, not precedents.
 
 # Vendored code
 

@@ -1,7 +1,8 @@
 # Pitch
 
-A reflowing, opinionated code formatter for the Scheme programming language,
-modelled after [`black`](https://github.com/psf/black) for Python.
+A reflowing, opinionated code formatter for the Scheme programming language.
+[`black`](https://github.com/psf/black) is one influence on its safety and
+workflow, not a contract to copy Black's configuration model.
 
 Pitch formats R6RS and R7RS source. It is itself written in R6RS Scheme and
 developed against [Chez Scheme](https://github.com/cisco/chezscheme); the
@@ -43,8 +44,9 @@ pitch -                     format standard input to standard output
 |---|---|
 | `--stdout` | write formatted text to standard output, rewriting nothing |
 | `--check` | write nothing; fail if any input would change |
-| `--width N` | page width, default 88 |
-| `--dialect D` | `common` (default), `r6rs`, or `r7rs` |
+| `--config PATH` | overlay the shipped configuration with an explicit file |
+| `--width N` | override the configured page width |
+| `--dialect D` | override the configured dialect with `common`, `r6rs`, or `r7rs` |
 | `--help` | usage, on standard output |
 | `--version` | version, on standard output |
 
@@ -56,6 +58,40 @@ pitch -                     format standard input to standard output
 
 The three statuses are distinct so that a CI job can tell "this code is
 unformatted" from "this invocation is wrong".
+
+### Configuration
+
+Pitch ships its defaults as `default-config.scm`, an installed data file rather
+than values compiled into the formatter. A project can overlay width, dialect,
+and per-form styles with one explicitly named file:
+
+```scheme
+(pitch-config 1
+  (width 100)
+  (dialect r7rs)
+  (styles common
+    ((my-let) (_ i? fc* . body)) ; add a project macro
+    ((when) (_ . fill))          ; replace an existing rule
+    ((cond) remove)))            ; use the generic shape instead
+```
+
+```sh
+pitch --config pitch.scm src/
+```
+
+Configuration is resolved in this order: shipped defaults, the named file, then
+explicit `--width` and `--dialect` flags. A common style is inherited by both
+dialects; a dialect-specific entry may replace or remove an inherited one.
+Pitch does not search the working directory, parent directories, a home
+directory, or environment-specific locations. Every input in one invocation
+uses the same resolved configuration.
+
+The file is one inert, versioned Scheme datum. Pitch parses it with its own
+reader and never passes it to host `read`, `load`, or `eval`. An unreadable or
+malformed shipped or user configuration is reported before any source or
+standard input is read. Configuration cannot disable safety checks, add a token
+normalization, reorder code, change token spelling or comment contents, alter
+terminal indentation, or execute code.
 
 **In-place is the default, and it is made safe by the write rules rather than by
 a flag.** A file is written only when its formatted text actually differs, so a
@@ -84,14 +120,14 @@ pitch --check --dialect r6rs src/ || exit 1
 - **Safety checks on every run.** Output is re-read and compared against the
   input; pitch refuses to write a file whose meaning it cannot prove unchanged.
 - **Idempotence.** `pitch(pitch(x)) == pitch(x)`, enforced by the test suite.
-- **Near-zero configuration.** Width and dialect. That is the whole surface.
+- **Bounded declarative configuration.** Width, dialect, and per-form styles are
+  inert data validated before source I/O; safety and source meaning are not
+  configurable.
 - **Pitch never reorders code.** Not top-level definitions, not `case` clauses,
   not quoted lists. Reordering is not formatting.
 - **Pitch never rewrites comment contents**, only their placement.
 - **Pitch never loses a comment, a `#;` form, or a `#| |#` block.** Comment loss
   is the defining flaw of every datum-based Scheme pretty-printer.
-- **Pitch does not grow configuration.** Every additional knob moves it toward
-  being a style engine rather than a canonical formatter.
 
 ## Architecture
 
@@ -107,10 +143,11 @@ source text
 ```
 
 The per-form style table — the SRFI 272 style grammar as the on-disk format —
-sits alongside `cst->document`, telling it which shape each form takes. It is
-data, in `(pitch style)`, which imports neither the CST nor the document algebra:
-a table cannot contain a document or a procedure because the library that defines
-tables cannot name one.
+sits alongside `cst->document`, telling it which shape each form takes. `(pitch
+config)` parses and composes external entries; `(pitch style)` contains only the
+closed grammar, inert descriptors, and table construction. It imports neither
+the CST nor the document algebra, so a table cannot contain a document or a
+procedure because the library that defines tables cannot name one.
 
 In the CST, whitespace and comments are ordinary members of a node's child
 sequence rather than trivia attached to a neighbouring token, so concatenating a
@@ -243,15 +280,12 @@ Pitch accepts R6RS and R7RS input. The reader is a permissive union — it never
 rejects input valid in either dialect — and the dialect selects only the style
 table, the bracket convention, and any dialect-specific output choices.
 
-Selection is by explicit `--dialect`, defaulting to content sniffing (`import`
-→ R6RS program, `library` → R6RS library, `define-library` → R7RS library), with
-a magic comment override. Pitch never silently guesses on ambiguous input.
-
-**Today the dialect names a style table and nothing else, and it is an argument
-rather than a choice pitch makes.** `--dialect` selects it and `format-source`
-takes it; the sniffing does not exist yet. It defaults to the entries common to
-both standards, so a caller naming no dialect gets nothing that differs between
-them. File extensions are used to *discover* files during a directory walk and
+Today the dialect names a style table and nothing else. The external shipped
+configuration defaults it to `common`; a user configuration may change it, and
+`--dialect` is the final override. `format-source` receives the resulting
+resolved configuration, selects its table at the edge, and passes only that
+table to translation. Content sniffing and a magic-comment override do not
+exist. File extensions are used to *discover* files during a directory walk and
 for nothing else — `.scm` and `.ss` are used by both camps, so a suffix is not
 evidence about which standard a file is written in.
 
@@ -274,7 +308,9 @@ src/pitch/check.sls      layers 1 and 2, and the combined runner
 src/pitch/doc.sls        the document algebra the layout engine resolves
 src/pitch/cost.sls       the cost factory interface and the default objective
 src/pitch/layout.sls     the Pi-e layout engine
-src/pitch/style.sls      the style grammar and the tables; data, not code
+src/pitch/style.sls      the closed style grammar and table construction
+src/pitch/config.sls     inert configuration parsing and composition
+src/pitch/default-config.scm external width, dialect, and style defaults
 src/pitch/print.sls      cst->document: the translation, and comment placement
 src/pitch/format.sls     the end-to-end pipeline, and what it refuses
 src/pitch/cli.sls        the argument grammar, the write rules, the exit status
@@ -306,6 +342,7 @@ the reader, `tests/test-cst.sps` the CST layer, `tests/test-datum.sps` the datum
 projection, `tests/test-check.sps` the safety checks, `tests/test-doc.sps` the
 document algebra, `tests/test-layout.sps` the layout engine,
 `tests/test-print.sps` the CST-to-document translation,
+`tests/test-config.sps` configuration parsing and composition,
 `tests/test-format.sps` the end-to-end pipeline — including idempotence over
 every one of pitch's own source files — and `tests/test-cli.sps` the command
 line.
@@ -324,7 +361,7 @@ refresh procedure.
 
 - [`laesare`](https://gitlab.com/weinholt/laesare) — R6RS/R7RS lexer and reader; the basis for pitch's lossless lexer.
 - [`bwbensonjr/laesare`](https://github.com/bwbensonjr/laesare) — mirror carrying the source-text recording patch.
-- [`black`](https://black.readthedocs.io/en/stable/the_black_code_style/current_style.html) — the code style pitch is modelled on.
+- [`black`](https://black.readthedocs.io/en/stable/the_black_code_style/current_style.html) — an influence on pitch's safety and workflow.
 - [Racket `fmt`](https://docs.racket-lang.org/fmt/index.html) — the closest existing analogue for a Lisp.
 - [SRFI 272: Pretty Printing](https://srfi.schemers.org/srfi-272/) — source of the style grammar used as pitch's configuration format.
 - [*A Pretty Expressive Printer*](https://arxiv.org/abs/2310.01530) — the layout algorithm.

@@ -30,6 +30,7 @@
   (rnrs (6))
   (pitch cli)
   (only (pitch format) format-source format-result-status)
+  (tests config)
   (tests runner))
 
 ;;; The in-memory filesystem
@@ -38,20 +39,37 @@
   (fields (mutable files)                ;alist of path -> contents
           (mutable writes)               ;reverse list of paths written
           (mutable renames)              ;reverse list of (from . to)
+          (mutable reads)                ;reverse list of host reads
           dirs links unreadable unwritable)
   (sealed #t) (opaque #f)
   (nongenerative fs-v0-b1d7c4a2-8e35-4f90-a6c8-3d21e7fb5904))
 
+(define default-path "/pitch/default-config.scm")
+
 (define (fs-new files dirs links unreadable unwritable)
-  (make-fs files '() '() dirs links unreadable unwritable))
+  (make-fs (cons (cons default-path default-config-text) files)
+           '()
+           '()
+           '()
+           dirs
+           links
+           unreadable
+           unwritable))
+
+(define (fs-without-default files)
+  (make-fs files '() '() '() '() '() '() '()))
 
 (define (has? path list) (and (member path list) #t))
 
-(define (fs-read fs path)
+(define (fs-lookup fs path)
   (cond ((has? path (fs-unreadable fs))
          (assertion-violation 'read-file "permission denied" path))
         ((assoc path (fs-files fs)) => cdr)
         (else (assertion-violation 'read-file "no such file" path))))
+
+(define (fs-read fs path)
+  (fs-reads-set! fs (cons path (fs-reads fs)))
+  (fs-lookup fs path))
 
 (define (fs-write! fs path text)
   (when (has? path (fs-unwritable fs))
@@ -62,7 +80,7 @@
                                 (fs-files fs)))))
 
 (define (fs-rename! fs from to)
-  (let ((text (fs-read fs from)))
+  (let ((text (fs-lookup fs from)))
     (fs-renames-set! fs (cons (cons from to) (fs-renames fs)))
     (fs-files-set! fs (cons (cons to text)
                             (remp (lambda (e)
@@ -99,6 +117,7 @@
 ;; preceded it is in fs-writes.
 (define (replaced fs) (reverse (map cdr (fs-renames fs))))
 (define (written fs) (reverse (fs-writes fs)))
+(define (read-paths fs) (reverse (fs-reads fs)))
 (define (contents fs path) (cond ((assoc path (fs-files fs)) => cdr) (else #f)))
 
 ;;; Running the driver
@@ -122,7 +141,7 @@
                    (open-string-input-port stdin-text)
                    out
                    err))
-           (status (run-cli args host)))
+           (status (run-cli args host default-path)))
       (make-run status (get-out) (get-err) fs))))
 
 ;; The common case: some files, no directories, no failures, empty stdin.
@@ -146,7 +165,7 @@
 ;; engine's decisions. A change in layout cannot silently invalidate them.
 
 (define (formatted text)
-  (let-values (((out result) (format-source text "x" 88 'common)))
+  (let-values (((out result) (format-source text "x" default-config)))
     out))
 
 (define ugly "(define  (f  x)   (+ x  1))\n")
@@ -162,10 +181,10 @@
 (test-assert (not (string=? ugly tidy)))
 (test-equal tidy (formatted tidy))
 (test-equal 'unclean-parse
-            (let-values (((o r) (format-source bad "x" 88 'common)))
+            (let-values (((o r) (format-source bad "x" default-config)))
               (format-result-status r)))
 (test-equal 'unsupported-line-ending
-            (let-values (((o r) (format-source crlf "x" 88 'common)))
+            (let-values (((o r) (format-source crlf "x" default-config)))
               (format-result-status r)))
 
 (test-end)
@@ -230,6 +249,7 @@
   (test-equal 2 (run-status r))
   (test-assert (string-contains? (run-err r) "--verbose"))
   ;; No file is read and no file is written.
+  (test-equal '() (read-paths (run-fs r)))
   (test-equal '() (written (run-fs r)))
   (test-equal ugly (contents (run-fs r) "a.sls")))
 
@@ -244,6 +264,29 @@
 (let ((r (run-files '("--dialect") '())))
   (test-equal 2 (run-status r))
   (test-assert (string-contains? (run-err r) "--dialect")))
+
+(let ((r (run-files '("--config") '())))
+  (test-equal 2 (run-status r))
+  (test-assert (string-contains? (run-err r) "--config"))
+  (test-equal '() (read-paths (run-fs r))))
+
+(test-end)
+
+(test-begin "one explicit configuration may be interleaved")
+
+(let ((r (run-files '("a.sls" "--config" "project.scm")
+                    (list (cons "a.sls" ugly)
+                          (cons "project.scm" "(pitch-config 1 (width 100))")))))
+  (test-equal 0 (run-status r))
+  (test-equal (list default-path "project.scm" "a.sls")
+              (read-paths (run-fs r))))
+
+(let ((r (run-files '("--config" "a.scm" "--config" "b.scm" "x.sls")
+                    (list (cons "a.scm" "(pitch-config 1)")
+                          (cons "b.scm" "(pitch-config 1)")
+                          (cons "x.sls" ugly)))))
+  (test-equal 2 (run-status r))
+  (test-equal '() (read-paths (run-fs r))))
 
 (test-end)
 
@@ -290,16 +333,19 @@
 (let ((r (run-files '("--help") '())))
   (test-equal 0 (run-status r))
   (test-assert (string-contains? (run-out r) "usage: pitch"))
-  (test-equal "" (run-err r)))
+  (test-equal "" (run-err r))
+  (test-equal '() (read-paths (run-fs r))))
 
 (let ((r (run-files '("--version") '())))
   (test-equal 0 (run-status r))
   (test-assert (string-contains? (run-out r) "pitch"))
-  (test-equal "" (run-err r)))
+  (test-equal "" (run-err r))
+  (test-equal '() (read-paths (run-fs r))))
 
 ;; Help wins over operands, and reads nothing.
 (let ((r (run-files '("--help" "a.sls") (list (cons "a.sls" ugly)))))
   (test-equal 0 (run-status r))
+  (test-equal '() (read-paths (run-fs r)))
   (test-equal '() (written (run-fs r)))
   (test-equal ugly (contents (run-fs r) "a.sls")))
 
@@ -312,7 +358,8 @@
 (let ((r (run-files '() '())))
   (test-equal 2 (run-status r))
   (test-assert (string-contains? (run-err r) "usage: pitch"))
-  (test-equal "" (run-out r)))
+  (test-equal "" (run-out r))
+  (test-equal '() (read-paths (run-fs r))))
 
 ;; Options that name no input are the same case.
 (let ((r (run-files '("--width" "40") '())))
@@ -648,6 +695,129 @@
        (r (run-files '("--width" "20" "a.sls") (list (cons "a.sls" wide)))))
   (test-equal 0 (run-status r))
   (test-equal "" (run-err r)))
+
+(test-end)
+
+;;; 6. Configuration preflight
+
+(test-begin "configuration is resolved before any source is read")
+
+;; A malformed user file is read after the shipped defaults, and neither source
+;; is touched.
+(let* ((files (list (cons "project.scm"
+                          "(pitch-config 1 (styles common ((x) (_ q . body))))")
+                    (cons "a.sls" ugly)
+                    (cons "b.sls" ugly)))
+       (r (run-files '("--config" "project.scm" "a.sls" "b.sls") files)))
+  (test-equal 2 (run-status r))
+  (test-equal (list default-path "project.scm") (read-paths (run-fs r)))
+  (test-equal '() (written (run-fs r)))
+  (test-equal ugly (contents (run-fs r) "a.sls"))
+  (test-assert (string-contains? (run-err r) "project.scm")))
+
+;; A named user file that cannot be read also fails before source processing.
+(for-each
+  (lambda (unreadable)
+    (let ((r (invoke '("--config" "project.scm" "a.sls")
+                     (fs-new (if unreadable
+                                 (list (cons "project.scm" "(pitch-config 1)"))
+                                 '())
+                             '()
+                             '()
+                             (if unreadable (list "project.scm") '())
+                             '())
+                     "")))
+      (test-equal 2 (run-status r))
+      (test-equal (list default-path "project.scm") (read-paths (run-fs r)))
+      (test-equal '() (written (run-fs r)))
+      (test-assert (string-contains? (run-err r) "project.scm"))))
+  '(#f #t))
+
+;; Missing and unreadable shipped data are never hidden by compiled fallback.
+(let ((r (invoke '("a.sls")
+                 (fs-without-default (list (cons "a.sls" ugly)))
+                 "")))
+  (test-equal 2 (run-status r))
+  (test-equal (list default-path) (read-paths (run-fs r)))
+  (test-equal ugly (contents (run-fs r) "a.sls"))
+  (test-assert (string-contains? (run-err r) default-path)))
+
+(let ((r (invoke '("a.sls")
+                 (fs-new (list (cons "a.sls" ugly))
+                         '()
+                         '()
+                         (list default-path)
+                         '())
+                 "")))
+  (test-equal 2 (run-status r))
+  (test-equal (list default-path) (read-paths (run-fs r)))
+  (test-equal '() (written (run-fs r))))
+
+;; Even standard input is not consumed into output when configuration fails.
+(let ((r (invoke '("--config" "bad.scm" "-")
+                 (fs-new (list (cons "bad.scm" "(pitch-config 1"))
+                         '() '() '() '())
+                 ugly)))
+  (test-equal 2 (run-status r))
+  (test-equal (list default-path "bad.scm") (read-paths (run-fs r)))
+  (test-equal "" (run-out r)))
+
+(test-end)
+
+(test-begin "configuration and command-line precedence reach the formatter")
+
+(define macro-source "(project-let ((x 1) (y 2)) (f x) (g y))\n")
+(define project-config
+  "(pitch-config 1 (width 20) (styles common ((project-let) (_ fc* . body))))")
+
+(let* ((files (list (cons "project.scm" project-config)
+                    (cons "a.sls" macro-source)))
+       (plain (run-files '("--stdout" "--width" "20" "a.sls") files))
+       (custom (run-files '("--stdout" "--config" "project.scm" "a.sls") files)))
+  (test-equal 0 (run-status custom))
+  (test-assert (not (string=? (run-out plain) (run-out custom)))))
+
+;; Explicit scalar flags win regardless of the configuration's values.
+(let* ((src "(aaaa bbbb cccc dddd eeee)\n")
+       (files (list (cons "project.scm"
+                          "(pitch-config 1 (width 100) (dialect r7rs))")
+                    (cons "a.sls" src)))
+       (configured
+         (run-files '("--stdout" "--config" "project.scm"
+                      "--width" "15" "--dialect" "r6rs" "a.sls")
+                    files))
+       (explicit
+         (run-files '("--stdout" "--width" "15" "--dialect" "r6rs" "a.sls")
+                    files)))
+  (test-equal (run-out explicit) (run-out configured)))
+
+;; One resolved configuration is read once and reused for every source.
+(let* ((files (list (cons "project.scm" project-config)
+                    (cons "a.sls" macro-source)
+                    (cons "b.sls" macro-source)))
+       (r (run-files '("--config" "project.scm" "a.sls" "b.sls") files)))
+  (test-equal 0 (run-status r))
+  (test-equal (list default-path "project.scm" "a.sls" "b.sls")
+              (read-paths (run-fs r))))
+
+(test-end)
+
+(test-begin "configuration is never discovered implicitly")
+
+(let* ((files (list (cons ".pitch.scm" "(pitch-config 1 (width 10))")
+                    (cons "dir/pitch.scm" "(pitch-config 1 (width 10))")
+                    (cons "dir/a.sls" ugly)))
+       (r (run-files '("dir/a.sls") files)))
+  (test-equal 0 (run-status r))
+  (test-equal (list default-path "dir/a.sls") (read-paths (run-fs r))))
+
+;; Help and version do not depend on an installed default file.
+(let ((help (invoke '("--help") (fs-without-default '()) ""))
+      (version (invoke '("--version") (fs-without-default '()) "")))
+  (test-equal 0 (run-status help))
+  (test-equal 0 (run-status version))
+  (test-equal '() (read-paths (run-fs help)))
+  (test-equal '() (read-paths (run-fs version))))
 
 (test-end)
 

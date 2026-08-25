@@ -32,7 +32,7 @@
 (library (pitch format)
 (export
   format-source format-result? format-result-status format-result-detail
-  format-result-tainted? default-page-width default-dialect)
+  format-result-tainted?)
 (import
   (rnrs base (6))
   (rnrs control (6))
@@ -41,23 +41,12 @@
   (pitch parse)
   (pitch print)
   (pitch check)
-  (only (pitch style) dialect-style-table)
+  (only (pitch config) resolved-config? config-width config-dialect config-style-table)
   (only (pitch cst) cst-tokens)
   (only (pitch lines) line-ending-char? strip-final-line-ending)
   (only (pitch reader) token-text)
   (only (pitch cost) default-cost-factory)
   (only (pitch layout) layout layout-result-tainted?))
-
-;; README.md's default, and black's.
-(define default-page-width 88)
-
-;; The shared core table: the entries common to both standards, and nothing
-;; that differs between them. A caller naming no dialect gets no guess -- the
-;; one form whose shape collides degrades to the generic shape instead. Choosing
-;; a standard here would style the other one's spelling of that form wrong,
-;; which is worse than styling neither, and picking the right one is the job of
-;; the content sniffing that does not exist yet.
-(define default-dialect 'common)
 
 ;; status   one of ok, unclean-parse, unsupported-line-ending, check-failed
 ;; detail   what belongs to that status: a diagnostics list, the offending
@@ -104,44 +93,38 @@
 
 ;;; The pipeline
 
-(define format-source
-  (case-lambda
-    ((source) (format-source source "<string>" default-page-width))
-    ((source filename) (format-source source filename default-page-width))
-    ((source filename width) (format-source source filename width default-dialect))
-    ((source filename width dialect)
-      ;; The dialect is resolved before anything else runs. It selects a style
-      ;; table and affects nothing else -- not acceptance, not the refusals, not
-      ;; the checks -- but an unknown one is a caller's error, and reporting it
-      ;; only at the translation stage would let an unclean parse mask it.
-      (dialect-style-table dialect)
-      (let-values (((tree diagnostics) (parse-source source filename)))
-        (cond
-          ;; Stage 1. A tree is clean exactly when its diagnostics list is empty,
-          ;; and an unclean one is refused rather than repaired.
-          ((not (null? diagnostics))
-            (values #f (make-format-result 'unclean-parse diagnostics #f)))
-          (else
-            (let ((foreign (find-foreign-token (cst-tokens tree))))
-              (cond
-                ;; Stage 2.
-                (foreign
-                  (values #f (make-format-result 'unsupported-line-ending foreign #f)))
-                (else
-                  ;; Stage 3. A document with no layout at all raises out of
-                  ;; (pitch layout), and is deliberately not caught: that is a bug
-                  ;; in the translation, not a property of the input, and turning
-                  ;; it into a status would hide it.
-                  (let-values (((output result) (layout (cst->document tree dialect)
-                                                        (default-cost-factory width))))
-                    (let ((tainted? (layout-result-tainted? result)))
-                      ;; Stage 4. Two texts: the one that came in, and the one just
-                      ;; produced. Never the tree either was built from.
-                      (let-values (((ok? layer detail) (check-output source output)))
-                        (if ok?
-                            (values output (make-format-result 'ok #f tainted?))
-                            (values #f
-                                    (make-format-result
-                                      'check-failed
-                                      (if layer (cons layer detail) detail)
-                                      tainted?))))))))))))))))
+(define (format-source source filename config)
+  (unless (resolved-config? config)
+    (assertion-violation 'format-source "Expected a resolved configuration" config))
+  (let ((width (config-width config))
+        (table (config-style-table config (config-dialect config))))
+    (let-values (((tree diagnostics) (parse-source source filename)))
+      (cond
+        ;; Stage 1. A tree is clean exactly when its diagnostics list is empty,
+        ;; and an unclean one is refused rather than repaired.
+        ((not (null? diagnostics))
+          (values #f (make-format-result 'unclean-parse diagnostics #f)))
+        (else
+          (let ((foreign (find-foreign-token (cst-tokens tree))))
+            (cond
+              ;; Stage 2.
+              (foreign
+                (values #f (make-format-result 'unsupported-line-ending foreign #f)))
+              (else
+                ;; Stage 3. A document with no layout at all raises out of
+                ;; (pitch layout), and is deliberately not caught: that is a bug
+                ;; in the translation, not a property of the input, and turning
+                ;; it into a status would hide it.
+                (let-values (((output result) (layout (cst->document tree table)
+                                                      (default-cost-factory width))))
+                  (let ((tainted? (layout-result-tainted? result)))
+                    ;; Stage 4. Two texts: the one that came in, and the one just
+                    ;; produced. Never the tree either was built from.
+                    (let-values (((ok? layer detail) (check-output source output)))
+                      (if ok?
+                          (values output (make-format-result 'ok #f tainted?))
+                          (values #f
+                                  (make-format-result
+                                    'check-failed
+                                    (if layer (cons layer detail) detail)
+                                    tainted?)))))))))))))))

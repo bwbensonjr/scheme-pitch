@@ -19,8 +19,9 @@
 ;; `exit` are (rnrs programs (6)) and need no implementation-specific import at
 ;; all; reading and writing are (rnrs io ports (6)).
 ;;
-;; The first element of `command-line` is the program itself, so the driver is
-;; handed its cdr.
+;; The first element of `command-line` is the program itself. The shipped
+;; configuration is installed beside it, so this file derives that one resource
+;; path and hands the driver both it and the remaining arguments.
 
 #!r6rs
 
@@ -69,4 +70,19 @@
              (current-output-port)
              (current-error-port)))
 
-(exit (run-cli (cdr (command-line)) host))
+(define (parent-directory path)
+  (let loop ((i (- (string-length path) 1)))
+    (cond
+      ((< i 0) ".")
+      ((char=? (string-ref path i) #\/)
+        (cond ((= i 0) "/") (else (substring path 0 i))))
+      (else (loop (- i 1))))))
+
+(define (path-join dir name)
+  (if (string=? dir "/") (string-append dir name) (string-append dir "/" name)))
+
+(define command (command-line))
+(define default-config-path
+  (path-join (parent-directory (car command)) "default-config.scm"))
+
+(exit (run-cli (cdr command) host default-config-path))

@@ -3,7 +3,7 @@
 ;; Copyright © 2026 Brent Benson
 ;; SPDX-License-Identifier: MIT
 
-;; Tests for the style grammar and the tables.
+;; Tests for the style grammar and table construction.
 ;;
 ;; No CST, no document and no source text appears in this file, and that is the
 ;; point: a style table is data, and if testing one needed a tree or a printer
@@ -41,6 +41,19 @@
 
 (define (slot-class style n) (classify (slot-style (nth-slot style n))))
 (define (tail-class style) (classify (tail-style (tail-of style))))
+
+(define (file-text path)
+  (let ((port (open-input-file path)))
+    (let ((text (get-string-all port)))
+      (close-port port)
+      text)))
+
+(define (contains? text needle)
+  (let ((n (string-length text)) (m (string-length needle)))
+    (let loop ((i 0))
+      (cond ((> (+ i m) n) #f)
+            ((string=? (substring text i (+ i m)) needle) #t)
+            (else (loop (+ i 1)))))))
 
 ;;; The notation
 
@@ -179,67 +192,46 @@
 
 (test-begin "a table maps a head to a style")
 
-(test-assert (style-table? core-style-table))
-(test-assert (styled? (style-table-ref core-style-table 'cond)))
+(define sample-table
+  (make-style-table '(((cond) (_ . ec*)) ((when unless) (_ e . body)))))
+
+(test-assert (style-table? sample-table))
+(test-assert (styled? (style-table-ref sample-table 'cond)))
 
 ;; A head with no entry is reported absent rather than raising. `if`, `and` and
 ;; `or` are absent deliberately: the generic shape is already what they want.
-(test-equal #f (style-table-ref core-style-table 'if))
-(test-equal #f (style-table-ref core-style-table 'and))
-(test-equal #f (style-table-ref core-style-table 'or))
-(test-equal #f (style-table-ref core-style-table 'no-such-form))
+(test-equal #f (style-table-ref sample-table 'if))
+(test-equal #f (style-table-ref sample-table 'and))
+(test-equal #f (style-table-ref sample-table 'or))
+(test-equal #f (style-table-ref sample-table 'no-such-form))
 
 ;; Heads sharing a shape share a descriptor, since the entry is written once.
-(test-assert (eq? (style-table-ref core-style-table 'when)
-                  (style-table-ref core-style-table 'unless)))
+(test-assert (eq? (style-table-ref sample-table 'when)
+                  (style-table-ref sample-table 'unless)))
 
 (test-end)
 
-(test-begin "a dialect selects a table")
+(test-begin "a table can be extended without mutating its base")
 
-;; A shared entry is the same descriptor in both dialect tables.
-(test-assert (eq? (style-table-ref r6rs-style-table 'cond)
-                  (style-table-ref r7rs-style-table 'cond)))
-(test-assert (eq? (style-table-ref r6rs-style-table 'let)
-                  (style-table-ref r7rs-style-table 'let)))
+(define extended
+  (extend-style-table sample-table '(((project-let) (_ fc* . body))) '(cond)))
 
-;; The collision: same head, incompatible shapes, and absent from the core, so
-;; the default dialect degrades it rather than guessing.
-(test-assert (not (eq? (style-table-ref r6rs-style-table 'define-record-type)
-                       (style-table-ref r7rs-style-table 'define-record-type))))
-(test-equal 1 (length (styled-slots
-                        (style-table-ref r6rs-style-table 'define-record-type))))
-(test-equal 3 (length (styled-slots
-                        (style-table-ref r7rs-style-table 'define-record-type))))
-(test-equal #f (style-table-ref core-style-table 'define-record-type))
+(test-assert (styled? (style-table-ref extended 'project-let)))
+(test-equal #f (style-table-ref extended 'cond))
+(test-assert (styled? (style-table-ref sample-table 'cond)))
+(test-assert (eq? (style-table-ref sample-table 'when)
+                  (style-table-ref extended 'when)))
 
-;; Each dialect's own entries are absent from the other and from the core.
-(test-assert (styled? (style-table-ref r6rs-style-table 'library)))
-(test-equal #f (style-table-ref r7rs-style-table 'library))
-(test-assert (styled? (style-table-ref r7rs-style-table 'define-library)))
-(test-equal #f (style-table-ref r6rs-style-table 'define-library))
-(test-equal #f (style-table-ref core-style-table 'library))
+(test-end)
 
-;; Both library forms use the flush tail. They are one construct under two
-;; spellings, each wrapping a whole compilation unit, so styling one flush and
-;; the other indented would make the dialects disagree about the same thing.
-(test-equal flush-indent
-            (tail-indent (styled-tail (style-table-ref r6rs-style-table 'library))))
-(test-equal flush-indent
-            (tail-indent
-              (styled-tail (style-table-ref r7rs-style-table 'define-library))))
+(test-begin "the style library is structurally data-only")
 
-;; And nothing else moved with them -- forms that appear inside a library body
-;; keep the indented tail.
-(test-equal hanging-indent
-            (tail-indent (styled-tail (style-table-ref core-style-table 'define))))
-(test-equal hanging-indent
-            (tail-indent (styled-tail (style-table-ref core-style-table 'import))))
-
-(test-assert (eq? core-style-table (dialect-style-table 'common)))
-(test-assert (eq? r6rs-style-table (dialect-style-table 'r6rs)))
-(test-assert (eq? r7rs-style-table (dialect-style-table 'r7rs)))
-(test-assert (raises? (lambda () (dialect-style-table 'r5rs))))
+(define style-source (file-text "src/pitch/style.sls"))
+(for-each
+  (lambda (forbidden) (test-assert (not (contains? style-source forbidden))))
+  '("\n  (pitch cst)" "\n  (pitch doc)" "\n  (pitch reader)"
+    "\n  (pitch config)" "\n  (rnrs io" "core-style-table"
+    "r6rs-style-table" "r7rs-style-table"))
 
 (test-end)
 

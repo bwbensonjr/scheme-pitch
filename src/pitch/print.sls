@@ -758,11 +758,6 @@
 
 ;;; Entry point
 
-;; The dialect names a style table and nothing else. It defaults to the shared
-;; core, whose entries are the ones common to both standards -- so a caller that
-;; names no dialect gets nothing that differs between them, and the one form
-;; that does differ degrades to the generic shape rather than being guessed at.
-(define cst->document
-  (case-lambda
-    ((node) (cst->document node 'common))
-    ((node dialect) (node-doc node (dialect-style-table dialect))))))
+;; Configuration and dialect selection happen at the caller's edge. Translation
+;; sees only the immutable data interface it needs.
+(define (cst->document node table) (node-doc node table)))

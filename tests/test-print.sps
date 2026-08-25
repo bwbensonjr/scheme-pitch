@@ -25,13 +25,22 @@
   (pitch cost)
   (pitch layout)
   (pitch style)
+  (pitch config)
+  (tests config)
   (tests runner))
 
 ;;; Helpers
 
+(define core-style-table (config-style-table default-config 'common))
+(define r6rs-style-table (config-style-table default-config 'r6rs))
+(define r7rs-style-table (config-style-table default-config 'r7rs))
+
+(define (table-for dialect)
+  (config-style-table default-config (if (null? dialect) 'common (car dialect))))
+
 (define (doc-of src . dialect)
   (let-values (((tree diagnostics) (parse-source src "test")))
-    (apply cst->document tree dialect)))
+    (cst->document tree (table-for dialect))))
 
 ;; The first datum of a source, for testing the seam directly.
 (define (first-form src)
@@ -42,6 +51,12 @@
   (let-values (((text result)
                 (layout (apply doc-of src dialect) (default-cost-factory width))))
     text))
+
+(define (fmt-with-table src width table)
+  (let-values (((tree diagnostics) (parse-source src "test")))
+    (let-values (((text result)
+                  (layout (cst->document tree table) (default-cost-factory width))))
+      text)))
 
 ;; Formatting is defined to end a file with exactly one newline. For the small
 ;; cases below that trailing newline is noise, so most tests compare without it.
@@ -215,6 +230,31 @@
                                       r6rs-style-table)))
 (test-equal 'generic (compound-shape (first-form "(library (a) b)\n")
                                      r7rs-style-table))
+
+(test-end)
+
+(test-begin "configured styles add replace and remove per-form rules")
+
+(define configured-table
+  (config-style-table
+    (make-test-config-with
+      "(pitch-config 1
+         (styles common
+           ((project-let) (_ fc* . body))
+           ((when) (_ . fill))
+           ((cond) remove)))"
+      20
+      'common)
+    'common))
+
+(test-assert (styled? (compound-shape (first-form "(project-let ((x 1)) x)\n")
+                                      configured-table)))
+(test-equal 'generic
+            (compound-shape (first-form "(cond (a b) (else c))\n")
+                            configured-table))
+(test-assert
+  (not (string=? (fmt-with-table "(when a b c d)\n" 10 configured-table)
+                 (fmt "(when a b c d)\n" 10))))
 
 (test-end)
 

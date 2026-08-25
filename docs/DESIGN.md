@@ -453,23 +453,14 @@ The reader is a permissive union and never rejects input valid in
 either standard. Nothing is lost by reading `#vu8` in a file declared R7RS; a
 great deal is lost by refusing to.
 
-Selection is by explicit `--dialect`, defaulting to content
-sniffing, with a magic-comment override. `detect-scheme-file-type` is already
-vendored and implements the sniffing: `import` → R6RS program, `library` → R6RS
-library, `define-library` → R7RS library. File extensions are not reliable —
-`.scm` and `.ss` are used by both camps. Pitch never silently guesses; a
-formatter that guesses wrong and rewrites everyone's brackets is worse than one
-that refuses.
-
-**`--dialect` exists; the sniffing does not.** The command line takes the flag
-and validates it before opening any file — `dialect-style-table` raises on an
-unknown name, and letting that escape from inside the per-file loop would abandon
-a partially rewritten run. What is still outstanding is only the inference:
-content sniffing and the magic-comment override are a change of their own, with
-their own refusal semantics on ambiguous input. Until then the default is the
-shared core and the flag is the way to say otherwise. The extension set the
-directory walk uses is a discovery filter and never a dialect signal, for exactly
-the reason stated above.
+Selection is resolved at the edge from the external shipped configuration, an
+optional explicit user configuration, and finally `--dialect`. The shipped
+default is `common`; configuration validation rejects an unknown name before
+any source is read. `detect-scheme-file-type` is vendored, but content sniffing
+and a magic-comment override do not exist and would require their own change and
+refusal semantics. File extensions are not reliable — `.scm` and `.ss` are used
+by both camps — so the directory walk uses them only as discovery filters and
+never as a dialect signal.
 
 ### The lexical divergences that matter
 
@@ -508,7 +499,7 @@ black has precedent in `--target-version`.
 
 ## 5. Style tables
 
-SRFI 272's style grammar is the on-disk format.** It is Scheme-native,
+**SRFI 272's style grammar is the on-disk format.** It is Scheme-native,
 already community-vetted, and comes with a registry API (`pretty-style`,
 `add-pp-style`, `lookup-pp-style`) and an in-file config comment syntax
 (`;; * pp-styles: sym := style`, including inheritance: `my-let-macro := let`).
@@ -518,11 +509,19 @@ Note that SRFI 272 cannot be the *engine* — it is a datum printer, and it
 explicitly leaves the layout algorithm unspecified, which destroys the one
 property pitch sells. Only the grammar is borrowed.
 
-**Settled: the grammar ships, and neither the registry nor the magic comment
-does.** `(pitch style)` reads the notation, validates it, and holds three tables.
-The registry API and `;; * pp-styles:` are both configuration, and `README.md`
-fixes the configuration surface at width and dialect; the grammar remaining the
-on-disk format keeps a loader additive whenever one is argued for.
+**Settled: the grammar and an explicit configuration loader ship; neither the
+registry nor the magic comment does.** `(pitch config)` parses one inert,
+versioned Scheme datum with pitch's own reader, composes the shipped defaults
+with an optional user overlay, and constructs three immutable tables. `(pitch
+style)` owns only the closed grammar, descriptors, and construction operations;
+it imports no configuration or I/O library. No configuration datum is passed to
+host `read`, `load`, or `eval`.
+
+The shipped width, dialect, and table entries live in
+`src/pitch/default-config.scm` rather than in a Scheme library. `--config PATH`
+names one optional overlay explicitly; pitch does no project, parent, home, or
+environment discovery. The SRFI registry and `;; * pp-styles:` remain separate,
+unimplemented mechanisms rather than alternate paths around this boundary.
 
 ### Why a table is needed at all
 
@@ -537,8 +536,8 @@ want different layouts:
 
 Both are four-element lists. Only a lookup on the head symbol distinguishes
 them. The table is therefore the largest piece of hand-written, taste-dependent
-data in the tool, and it *is* the encoded best practice that the "configuration
-based on best practices" goal refers to.
+data consumed by the tool, and it *is* the encoded best practice that the
+"configuration based on best practices" goal refers to.
 
 ### The shape vocabulary is small
 
@@ -702,21 +701,20 @@ Same head symbol, incompatible shapes — `(_ i h i . body)` versus `(_ i . body
 It appears to be the only such collision in the core of either standard, but one
 is enough to settle the architecture.
 
-**Settled: three tables, and a dialect argument that selects one.** The core is
-the entries identical in both standards; each dialect table is the core plus its
-own, so a shared entry is compiled once and is literally the same descriptor
-reachable from both. `cst->document` and `format-source` take an optional dialect
-defaulting to `common`, which selects the core — where the colliding head has no
-entry and therefore degrades. That is the degradation path doing exactly the job
-it exists for, rather than a union table quietly rendering one dialect's form
-under the other's rule.
+**Settled: each resolved configuration holds three tables, and its dialect
+selects one.** The core is the entries common to both standards; each dialect
+table is the resolved core followed by its own additions, replacements, and
+removals. A shared entry is compiled once and is literally the same descriptor
+reachable from both. `format-source` takes the resolved configuration, selects
+the table at the edge, and passes that table to `cst->document`; translation sees
+neither dialect nor configuration. Under the shipped `common` default the
+colliding head has no entry and therefore degrades rather than being guessed at.
 
-A dialect at this layer selects a style table and nothing else. §4 defines it as
-a bundle of three, and the other two have nothing to configure yet: the reader is
-a permissive union by invariant, and the normalization list is empty. Introducing
-empty fields to honour a definition would be inventing structure ahead of its
-content. Selection — sniffing, `--dialect`, the magic-comment override — is still
-unbuilt; the argument exists, choosing its value from a file does not.
+A dialect at this layer still selects a style table and nothing else. §4 defines
+it as a bundle of three, but the reader remains a permissive union by invariant
+and the normalization list remains empty and non-configurable. Configuration
+therefore supplies the dialect and style data without inventing reader or
+normalization switches.
 
 ### Graceful degradation
 
@@ -743,7 +741,7 @@ comment to make a style fit is what layer 1 refuses.
 The seam is one function, `compound-shape`. It reads the head — as the token's
 *value*, so `|cond|` and, under `#!fold-case`, `COND` take the shape they mean —
 looks it up in the dialect's table, and returns a descriptor. No other function
-in the printer may examine a head. That is `CLAUDE.md`'s "style tables are data,
+in the printer may examine a head. That is `AGENTS.md`'s "style tables are data,
 not code" made checkable rather than aspirational, and the check is structural at
 a second level too: `(pitch style)` imports neither the CST, the document algebra
 nor the reader, so a table cannot contain a document or a procedure because the
@@ -759,7 +757,7 @@ thing pitch is allowed to change.
 
 SRFI 272's `pp-tab` (body indent relative to the keyword) and
 `pp-max-tab` (cap on the extra offset short keywords like `if` induce), plus
-width. Plausibly the entire numeric configuration surface.
+width. Width is the only numeric value pitch exposes as configuration.
 
 **Settled: `pp-tab` is 2 and is measured from the opening delimiter, and
 `pp-max-tab` is not implemented.** SRFI 272 measures from the start of the form's
@@ -773,9 +771,9 @@ the hanging shape already did, so neither the constant nor the `nest` changed.
 that wrap a whole compilation unit — `library` and `define-library` — where
 indenting the body costs two columns on every line of a file to mark a nesting
 level that ends at the last line and that nobody can forget. Both remain
-constants of the implementation, measured from the opening delimiter, and the
-configuration surface is still width and dialect: the *terminal* chooses, and a
-style cannot name an indent of its own.
+constants of the implementation, measured from the opening delimiter: the
+*terminal* chooses, and neither a configuration field nor a style can name an
+indent of its own.
 
 `body0` is not an SRFI 272 terminal, and adding it is the one place pitch extends
 the grammar rather than adopting it. The reason is the layering rule: per-form
@@ -787,8 +785,9 @@ the table is built — and the precedent extends no further than the one termina
 
 `pp-max-tab` exists to cap the rightward drift a long keyword causes when a body
 is offset from the keyword rather than from the delimiter. There is no such drift
-here, so the knob has no referent. Both stay constants either way: `README.md`
-fixes the configuration surface at width and dialect.
+here, so the knob has no referent. Both stay constants; the bounded external
+configuration exposes width, dialect, and per-form style entries, not terminal
+semantics.
 
 ### Open questions on style tables
 
@@ -810,7 +809,8 @@ fixes the configuration surface at width and dialect.
   what evidence. `raco fmt` reached 183 entries; this table is 30 or so, and the
   corpus work is what should say which additions earn their place.
 - Whether an in-file `;; * pp-styles:` comment ever ships. It is the community
-  precedent for per-file style overrides and it is also configuration growth.
+  precedent for per-file overrides, but would be a second configuration channel
+  with source-local precedence and needs a separate argument.
 
 ## 6. Layout engine
 
@@ -953,4 +953,3 @@ For every file: layers 0 through 3, plus the differential `read` comparison
 against Chez, Chibi, and Gauche. Layer 0 will fail constantly at first; that is
 it doing its job. The matrix runs per dialect, and building that harness is the
 real cost of dual-dialect support — not the dialect handling itself.
-
