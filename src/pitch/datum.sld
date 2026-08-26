@@ -30,30 +30,34 @@
 ;;
 ;; Nothing here branches on dialect: #vu8( and #u8( project alike.
 
-#!r6rs
-
-(library (pitch datum)
+(define-library (pitch datum)
 (export cst->datum)
 (import
-  (rnrs base (6))
-  (rnrs control (6))
-  (rnrs lists (6))
-  (rnrs hashtables (6))
-  (rnrs bytevectors (6))
-  (rnrs mutable-pairs (6)) ;to tie the knot on #0= cycles
-  (rnrs records syntactic (6))
+  (scheme base)
+  (scheme cxr)
   (pitch cst)
   (pitch diagnostic)
-  (only (pitch reader) token-value))
+  (pitch reader)
+  (pitch sequence)
+  (pitch table))
+(begin
+
+(define-syntax let-values
+  (syntax-rules ()
+    ((_ (((name ...) expression)) body ...)
+     (call-with-values (lambda () expression)
+       (lambda (name ...) body ...)))))
 
 ;; A datum reference stands in for its target until the enclosing top-level
 ;; datum is built and the patchers run. It never survives into a returned
 ;; datum unless the reference was unresolvable, which is diagnosed.
-(define-record-type placeholder
-  (fields label)
-  (sealed #t)
-  (opaque #f)
-  (nongenerative placeholder-v0-9a3c1e77-5f24-4a1b-8c60-0d5b6e2f4a13))
+(define-record-type <placeholder>
+  (make-placeholder label)
+  placeholder?
+  (label placeholder-label))
+
+(define (remove-if predicate values)
+  (filter (lambda (value) (not (predicate value))) values))
 
 ;; A unique object meaning "this node contributes no datum at all", as
 ;; distinct from contributing #f. Containers drop it.
@@ -81,8 +85,8 @@
     (define (resolve-patches!)
       (for-each (lambda (p)
                   (let ((label (car p)) (node (cadr p)) (proc (caddr p)))
-                    (if (hashtable-contains? labels label)
-                        (proc (hashtable-ref labels label #f))
+                    (if (table-contains? labels label)
+                        (proc (table-ref labels label #f))
                         (diagnose! "Datum reference with no matching label" node))))
                 (reverse patchers)))
 
@@ -90,7 +94,7 @@
     ;; #; needs no rule of its own: the lexer made it one opaque trivia leaf,
     ;; so the datum it elides is already absent. Error nodes hold tokens the
     ;; parser could not place, and contribute nothing either.
-    (define (projectable node) (remp error-node? (datum-children node)))
+    (define (projectable node) (remove-if error-node? (datum-children node)))
 
     (define (before-dot cs)
       (let loop ((cs cs) (acc '()))
@@ -117,7 +121,7 @@
             ((list) (project-list node))
             ((vector) (project-vector node))
             ((bytevector) (project-bytevector node))
-            (else (assertion-violation 'cst->datum "Unknown compound" node))))
+            (else (error "Unknown compound" node))))
         ((prefix? node) (project-prefix node))
         (else (values omitted #f))))
 
@@ -158,7 +162,7 @@
              ;; A dot outside a valid tail position was diagnosed at parse
              ;; time. It names no datum, so it is dropped rather than
              ;; projected to some invented value.
-             (elems (if improper? (before-dot cs) (remp dot-leaf? cs)))
+             (elems (if improper? (before-dot cs) (remove-if dot-leaf? cs)))
              (tail (and improper? (after-dot cs)))
              (chain (build-chain (project-each elems))))
         (when (and tail (pair? chain))
@@ -170,7 +174,7 @@
         (values chain #f)))
 
     (define (project-vector node)
-      (let* ((triples (project-each (remp dot-leaf? (projectable node))))
+      (let* ((triples (project-each (remove-if dot-leaf? (projectable node))))
              (vec (list->vector (map car triples))))
         (let loop ((ts triples) (i 0))
           (unless (null? ts)
@@ -194,8 +198,8 @@
                         ((eq? d omitted))
                         ((octet? d) (set! octets (cons d octets)))
                         (else (diagnose! "Invalid datum in bytevector" child)))))
-                  (remp dot-leaf? (projectable node)))
-        (values (u8-list->bytevector (reverse octets)) #f)))
+                  (remove-if dot-leaf? (projectable node)))
+        (values (list->bytevector (reverse octets)) #f)))
 
     (define (project-prefix node)
       (let ((marker (prefix-marker node)) (target (prefix-datum node)))
@@ -209,9 +213,9 @@
         (let-values (((d ref) (project target)))
           (cond
             ((eq? d omitted) (values omitted #f))
-            (else (if (hashtable-contains? labels n)
+            (else (if (table-contains? labels n)
                       (diagnose! "Duplicate datum label" marker)
-                      (hashtable-set! labels n d))
+                      (table-set! labels n d))
                   ;; ref propagates: #0=#1# labels whatever #1# resolves to,
                   ;; and the slot to patch belongs to our caller.
                   (values d ref))))))
@@ -231,17 +235,18 @@
     ;; standards require and as read-datum does upstream with a fresh table
     ;; per call.
     (define (project-top node)
-      (set! labels (make-eqv-hashtable))
+      (set! labels (make-integer-table))
       (set! patchers '())
       (let-values (((d ref) (project node)))
         (resolve-patches!)
         (cond
           ((not ref) d)
-          ((hashtable-contains? labels ref) (hashtable-ref labels ref #f))
+          ((table-contains? labels ref) (table-ref labels ref #f))
           (else (diagnose! "Datum reference with no matching label" node) d))))
 
-    (let loop ((ns (remp error-node? (datum-children document))) (acc '()))
+    (let loop ((ns (remove-if error-node? (datum-children document))) (acc '()))
       (if (null? ns)
           (values (reverse acc) (sort-diagnostics diagnostics))
           (let ((d (project-top (car ns))))
             (loop (cdr ns) (if (eq? d omitted) acc (cons d acc)))))))))
+)

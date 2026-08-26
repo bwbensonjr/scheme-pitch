@@ -5,12 +5,18 @@ VENDOR_FILES  := reader.sls writer.sls LICENSE.txt
 
 CHEZ    ?= chez
 RACKET  ?= racket
+EMIT    ?= emit
+EMIT_MANIFEST ?=
 LIBDIRS := src:.
 
 ORACLE_OUT := $(shell mktemp -t pitch-layout)
 ORACLE_REF := $(shell mktemp -t pitch-layout-ref)
 
 PREFIX ?= /usr/local
+
+READER_SOURCE    := src/pitch/reader.sls
+READER_GENERATED := src/pitch/reader.sld
+READER_GENERATOR := tools/generate-reader.sps
 
 # The project's own sources: the libraries pitch is built from and owns. Run
 # `make format` before committing; `make format-check` is the same question
@@ -29,11 +35,16 @@ PREFIX ?= /usr/local
 FORMAT_SOURCES := $(filter-out src/pitch/reader.sls,$(wildcard src/pitch/*.sls)) \
                   src/pitch/main.sps
 
-.PHONY: help test oracle-layout vendor-diff vendor-verify install uninstall \
-        format format-check
+.PHONY: help test emit-preflight audit-r7rs reader-generate reader-check \
+        layout-parity oracle-layout vendor-diff vendor-verify install uninstall format format-check
 
 help:
 	@echo "test           run the reader regression suite"
+	@echo "emit-preflight verify the Emit capabilities required by the port"
+	@echo "audit-r7rs     reject legacy R6RS surfaces in maintained .sld files"
+	@echo "reader-generate regenerate the Emit reader from authoritative reader.sls"
+	@echo "reader-check   fail if the generated Emit reader has drifted"
+	@echo "layout-parity compare the Chez and Emit layout corpus outcomes"
 	@echo "format         format pitch's own sources in place"
 	@echo "format-check   check those sources; non-zero if any would change"
 	@echo "bin/pitch      generate the wrapper script for this checkout"
@@ -42,6 +53,29 @@ help:
 	@echo "oracle-layout  diff the layout engine against Racket's pretty-expressive"
 	@echo "vendor-diff    show pitch's changes to laesare's reader"
 	@echo "vendor-verify  check vendor/laesare/ still matches $(LAESARE_TAG)"
+
+# Every Emit compilation target depends on this gate. Keeping the probe in one
+# script also lets CI exercise missing and older compiler diagnostics directly.
+emit-preflight:
+	@EMIT='$(EMIT)' EMIT_MANIFEST='$(EMIT_MANIFEST)' \
+	  sh tools/check-emit-prerequisites.sh
+
+audit-r7rs:
+	@sh tools/audit-r7rs.sh
+
+reader-generate:
+	@$(CHEZ) --program $(READER_GENERATOR) $(READER_SOURCE) $(READER_GENERATED)
+
+reader-check:
+	@tmp=$$(mktemp -d); \
+	trap 'rm -rf "$$tmp"' EXIT HUP INT TERM; \
+	$(CHEZ) --program $(READER_GENERATOR) $(READER_SOURCE) "$$tmp/reader.sld"; \
+	if ! cmp -s $(READER_GENERATED) "$$tmp/reader.sld"; then \
+	  echo "reader-check: $(READER_GENERATED) has drifted; run make reader-generate" >&2; \
+	  diff -u $(READER_GENERATED) "$$tmp/reader.sld" >&2 || true; \
+	  exit 1; \
+	fi; \
+	echo "reader-check: ok"
 
 # test-reader.sps is the regression baseline: the vendored laesare suite,
 # ported to (pitch reader) and otherwise unmodified. test-recording.sps covers
@@ -61,14 +95,18 @@ help:
 #
 # This target runs on Chez alone. The layout engine's differential oracle needs
 # Racket and lives in oracle-layout, deliberately outside `test`.
-test:
+test: emit-preflight reader-check
 	@$(CHEZ) --libdirs $(LIBDIRS) --program tests/test-reader.sps
 	@$(CHEZ) --libdirs $(LIBDIRS) --program tests/test-recording.sps
+	@$(CHEZ) --libdirs $(LIBDIRS) --program tests/test-number-syntax.sps
+	@sh tests/test-reader-parity.sh
 	@$(CHEZ) --libdirs $(LIBDIRS) --program tests/test-cst.sps
 	@$(CHEZ) --libdirs $(LIBDIRS) --program tests/test-datum.sps
 	@$(CHEZ) --libdirs $(LIBDIRS) --program tests/test-check.sps
 	@$(CHEZ) --libdirs $(LIBDIRS) --program tests/test-doc.sps
 	@$(CHEZ) --libdirs $(LIBDIRS) --program tests/test-layout.sps
+	@EMIT_VERBOSITY=quiet $(EMIT) run tests/test-layout-r7rs.scm
+	@sh tests/test-layout-parity.sh
 	@$(CHEZ) --libdirs $(LIBDIRS) --program tests/test-style.sps
 	@$(CHEZ) --libdirs $(LIBDIRS) --program tests/test-config.sps
 	@$(CHEZ) --libdirs $(LIBDIRS) --program tests/test-print.sps
@@ -131,6 +169,9 @@ uninstall:
 # people to ignore it.
 # One shell for the whole recipe: make gives each line its own, so a skip has
 # to be a branch rather than an early `exit 0`.
+layout-parity:
+	@sh tests/test-layout-parity.sh
+
 oracle-layout:
 	@if ! command -v $(RACKET) >/dev/null 2>&1; then \
 	  echo "oracle-layout: no racket on PATH; skipping"; \

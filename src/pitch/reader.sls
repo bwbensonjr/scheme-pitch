@@ -48,6 +48,12 @@
 ;;
 ;;   - The reader record has a new nongenerative UID, since its fields changed.
 ;;
+;;   - Numeric syntax is recognized independently of string->number, across
+;;     the complete R6RS/R7RS integer, rational, decimal, exponent, complex,
+;;     infinity, NaN, exactness, radix, and R6RS mantissa-width forms. The host
+;;     conversion is a separate step, so lack of a host representation is no
+;;     longer confused with malformed source syntax.
+;;
 ;; Recorded spans are not always minimal lexemes. On the error-recovery and
 ;; directive paths get-token* consumes a prefix before the token it ultimately
 ;; returns, and that prefix is attributed to it rather than dropped. Nothing is
@@ -416,25 +422,244 @@
          (get-char p)
          (lp chars))))))
 
+(define (ascii-downcase c)
+  (if (char<=? #\A c #\Z)
+      (integer->char (+ (char->integer c) (- (char->integer #\a)
+                                              (char->integer #\A))))
+      c))
+
+(define (digit-value c)
+  (let ((c (ascii-downcase c)))
+    (cond ((char<=? #\0 c #\9) (- (char->integer c) (char->integer #\0)))
+          ((char<=? #\a c #\f) (+ 10 (- (char->integer c) (char->integer #\a))))
+          (else #f))))
+
+(define (digit-in-radix? c radix)
+  (let ((value (digit-value c)))
+    (and value (< value radix))))
+
+(define (scan-digits text start end radix)
+  (let loop ((index start))
+    (if (and (< index end)
+             (digit-in-radix? (string-ref text index) radix))
+        (loop (+ index 1))
+        index)))
+
+(define (nonzero-digits? text start end)
+  (let loop ((index start))
+    (and (< index end)
+         (or (let ((value (digit-value (string-ref text index))))
+               (and value (not (= value 0))))
+             (loop (+ index 1))))))
+
+(define (ascii-ci-prefix? text start end expected)
+  (let ((expected-end (+ start (string-length expected))))
+    (and (<= expected-end end)
+         (let loop ((index start) (expected-index 0))
+           (if (= expected-index (string-length expected))
+               #t
+               (and (char=? (ascii-downcase (string-ref text index))
+                            (string-ref expected expected-index))
+                    (loop (+ index 1) (+ expected-index 1))))))))
+
+;; Return the index after an infinity or NaN spelling, or #f. The sign is part
+;; of both productions in R6RS and R7RS.
+(define (infnan-end text start end)
+  (cond ((or (ascii-ci-prefix? text start end "+inf.0")
+             (ascii-ci-prefix? text start end "-inf.0")
+             (ascii-ci-prefix? text start end "+nan.0")
+             (ascii-ci-prefix? text start end "-nan.0"))
+         (+ start 6))
+        (else #f)))
+
+(define (exponent-marker? c)
+  ;; R7RS uses e. R6RS additionally admits s, f, d, and l. The reader is
+  ;; permissive across their union; dialect remains an output-edge policy.
+  (memv (ascii-downcase c) '(#\e #\s #\f #\d #\l)))
+
+(define (scan-exponent text start end)
+  (let ((digits-start
+         (if (and (< start end)
+                  (memv (string-ref text start) '(#\+ #\-)))
+             (+ start 1)
+             start)))
+    (let ((digits-end (scan-digits text digits-start end 10)))
+      (and (< digits-start digits-end) digits-end))))
+
+(define (scan-mantissa-width text start end)
+  (let ((width-end (scan-digits text start end 10)))
+    (and (< start width-end) width-end)))
+
+(define (scan-decimal-suffix text start end)
+  (let ((after-exponent
+         (if (and (< start end) (exponent-marker? (string-ref text start)))
+             (scan-exponent text (+ start 1) end)
+             start)))
+    (and after-exponent
+         (if (and (< after-exponent end)
+                  (char=? (string-ref text after-exponent) #\|))
+             (scan-mantissa-width text (+ after-exponent 1) end)
+             after-exponent))))
+
+;; Parse an unsigned real and return the first unconsumed index. A false result
+;; means that no complete unsigned-real production begins at START.
+(define (parse-ureal text start end radix)
+  (cond
+    ((and (= radix 10)
+          (< start end)
+          (char=? (string-ref text start) #\.))
+     (let ((fraction-end (scan-digits text (+ start 1) end 10)))
+       (and (< (+ start 1) fraction-end)
+            (scan-decimal-suffix text fraction-end end))))
+    (else
+     (let ((integer-end (scan-digits text start end radix)))
+       (and (< start integer-end)
+            (cond
+              ((and (< integer-end end)
+                    (char=? (string-ref text integer-end) #\/))
+               (let ((denominator-end
+                      (scan-digits text (+ integer-end 1) end radix)))
+                 (and (< (+ integer-end 1) denominator-end)
+                      (nonzero-digits? text (+ integer-end 1) denominator-end)
+                      denominator-end)))
+              ((and (= radix 10)
+                    (< integer-end end)
+                    (char=? (string-ref text integer-end) #\.))
+               (let ((fraction-end
+                      (scan-digits text (+ integer-end 1) end 10)))
+                 (scan-decimal-suffix text fraction-end end)))
+              ((and (= radix 10)
+                    (< integer-end end)
+                    (exponent-marker? (string-ref text integer-end)))
+               (scan-decimal-suffix text integer-end end))
+              ((and (< integer-end end)
+                    (char=? (string-ref text integer-end) #\|))
+               (scan-mantissa-width text (+ integer-end 1) end))
+              (else integer-end)))))))
+
+(define (parse-real text start end radix)
+  (or (infnan-end text start end)
+      (let ((unsigned-start
+             (if (and (< start end)
+                      (memv (string-ref text start) '(#\+ #\-)))
+                 (+ start 1)
+                 start)))
+        (parse-ureal text unsigned-start end radix))))
+
+(define (signed-start? text start end)
+  (and (< start end) (memv (string-ref text start) '(#\+ #\-))))
+
+(define (complex-number-syntax? text start end radix)
+  ;; The two unit-imaginary spellings have no unsigned-real component.
+  (if (and (= (+ start 2) end)
+           (signed-start? text start end)
+           (char-ci=? (string-ref text (+ start 1)) #\i))
+      #t
+      (let ((first-end (parse-real text start end radix)))
+        (and first-end
+             (cond
+               ((= first-end end) #t)
+               ((char=? (string-ref text first-end) #\@)
+                (let ((second-end
+                       (parse-real text (+ first-end 1) end radix)))
+                  (and second-end (= second-end end))))
+               ((char-ci=? (string-ref text first-end) #\i)
+                ;; A pure imaginary coefficient must carry an explicit sign.
+                (and (signed-start? text start end)
+                     (= (+ first-end 1) end)))
+               ((memv (string-ref text first-end) '(#\+ #\-))
+                (let ((component-start (+ first-end 1)))
+                  (cond
+                    ((and (= (+ component-start 1) end)
+                          (char-ci=? (string-ref text component-start) #\i))
+                     #t)
+                    ((infnan-end text first-end end)
+                     => (lambda (component-end)
+                          (and (< component-end end)
+                               (char-ci=? (string-ref text component-end) #\i)
+                               (= (+ component-end 1) end))))
+                    (else
+                     (let ((component-end
+                            (parse-ureal text component-start end radix)))
+                       (and component-end
+                            (< component-end end)
+                            (char-ci=? (string-ref text component-end) #\i)
+                            (= (+ component-end 1) end)))))))
+               (else #f))))))
+
+;; Return #(radix body-start), rejecting repeated, unknown, and incomplete
+;; exactness/radix prefixes. Prefix letters are case-insensitive in both reports.
+(define (scan-number-prefixes text end)
+  (let loop ((index 0) (radix 10) (radix-seen? #f) (exactness-seen? #f))
+    (if (and (< index end) (char=? (string-ref text index) #\#))
+        (and (< (+ index 1) end)
+             (let ((letter (ascii-downcase (string-ref text (+ index 1)))))
+               (case letter
+                 ((#\b)
+                  (and (not radix-seen?)
+                       (loop (+ index 2) 2 #t exactness-seen?)))
+                 ((#\o)
+                  (and (not radix-seen?)
+                       (loop (+ index 2) 8 #t exactness-seen?)))
+                 ((#\d)
+                  (and (not radix-seen?)
+                       (loop (+ index 2) 10 #t exactness-seen?)))
+                 ((#\x)
+                  (and (not radix-seen?)
+                       (loop (+ index 2) 16 #t exactness-seen?)))
+                 ((#\e #\i)
+                  (and (not exactness-seen?)
+                       (loop (+ index 2) radix radix-seen? #t)))
+                 (else #f))))
+        (and (< index end) (vector radix index)))))
+
+(define (number-syntax? text)
+  (let* ((end (string-length text))
+         (prefixes (scan-number-prefixes text end)))
+    (and prefixes
+         (complex-number-syntax? text
+                                 (vector-ref prefixes 1)
+                                 end
+                                 (vector-ref prefixes 0)))))
+
+(define-record-type opaque-number-marker
+  (fields)
+  (sealed #t) (opaque #t)
+  (nongenerative opaque-number-marker-v0-42d723ff-f600-45ea-b55e-5f02e72bf115))
+
+(define opaque-number-marker-instance (make-opaque-number-marker))
+
+(define (make-opaque-number text)
+  ;; The marker is a private singleton that source text cannot construct. Two
+  ;; fresh reads share it and retain their own exact lexeme in the second slot.
+  (vector opaque-number-marker-instance text))
+
+;; Syntax recognition and host construction deliberately remain separate. The
+;; latter becomes the opaque-number decision point on bounded hosts.
+(define (construct-number text)
+  (guard (raised (else #f))
+    (string->number text)))
+
 ;; Get a number from the reader.
 (define (get-number p initial-chars)
   (let lp ((chars initial-chars))
     (let ((c (lookahead-char p)))
-      (cond ((and (not (eqv? c #\#)) (char-delimiter? p c))
-             ;; TODO: some standard numbers are not supported
-             ;; everywhere, should use a number lexer.
+      (cond ((and (not (memv c '(#\# #\|))) (char-delimiter? p c))
              (let ((str (list->string (reverse chars))))
-               (cond ((string->number str) =>
+               (cond ((not (number-syntax? str))
+                      (if (and (memq (reader-mode p) '(rnrs r7rs))
+                               (not (memv (string-ref str 0)
+                                          '(#\# #\0 #\1 #\2 #\3 #\4
+                                            #\5 #\6 #\7 #\8 #\9))))
+                          (values 'identifier (string->symbol str))
+                          (begin
+                            (reader-warning p "Invalid number syntax" str)
+                            (values 'identifier (string->symbol str)))))
+                     ((construct-number str) =>
                       (lambda (num)
                         (values 'value num)))
-                     ((and (memq (reader-mode p) '(rnrs r7rs))
-                           ;; TODO: This is incomplete.
-                           (not (and (pair? initial-chars)
-                                     (char<=? #\0 (car initial-chars) #\9))))
-                      (values 'identifier (string->symbol str)))
                      (else
-                      (reader-warning p "Invalid number syntax" str)
-                      (values 'identifier (string->symbol str))))))
+                      (values 'value (make-opaque-number str))))))
             (else
              (lp (cons (get-char p) chars)))))))
 

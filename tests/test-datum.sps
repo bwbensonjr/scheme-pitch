@@ -62,6 +62,15 @@
 (test-equal '#vu8(1 2) (proj1 "#vu8(1 2)"))
 (test-equal '(1 (2 (3))) (proj1 "(1 (2 (3)))"))
 
+;; Chez cannot represent this exact polar value, so it exercises the same
+;; opaque projection path bounded Emit uses for large integers and rationals.
+(let ((opaque (proj1 "#e1@1")))
+  (test-assert (vector? opaque))
+  (test-assert (not (number? opaque)))
+  (test-equal 0 (length (all-diagnostics-of "#e1@1")))
+  (test-assert
+   (not (datum=? opaque (proj1 "#(opaque-number-marker \"#e1@1\")")))))
+
 ;; Several top-level data, in source order.
 (test-equal '((a) (b)) (proj "(a) (b)"))
 (test-equal 2 (length (proj "(a) (b)")))
@@ -237,6 +246,14 @@
 (test-assert (datum=? (proj "#0=#(a #0#)") (proj "#0=#(a #0#)")))
 (test-assert (not (datum=? (proj "#0=#(a #0#)") (proj "#0=#(b #0#)"))))
 
+;; Opaque values are independently reconstructed from token values. Equal
+;; lexemes compare equal, including inside cycles; different spellings do not.
+(test-assert (datum=? (proj "#e1@1") (proj "#e1@1")))
+(test-assert (not (datum=? (proj "#e1@1") (proj "#e01@1"))))
+(test-assert
+ (datum=? (proj "#0=(#e1@1 . #0#)")
+          (proj "#0=(#e1@1 . #0#)")))
+
 (test-end)
 
 ;;; Number edge cases
@@ -252,6 +269,7 @@
 (test-assert (datum=? (proj "+nan.0") (proj "+nan.0")))
 (test-assert (datum=? (proj "1/2") (proj "1/2")))
 (test-assert (not (datum=? (proj "1/2") (proj "0.5"))))
+(test-assert (datum=? (proj "#xff") (proj "255")))
 
 (test-end)
 

@@ -29,9 +29,7 @@
 ;;
 ;; Neither layer is wired to a formatter yet, because there is no printer.
 
-#!r6rs
-
-(library (pitch check)
+(define-library (pitch check)
 (export
   ;; layer 1
   token=? check-token-equivalence mismatch? mismatch-index mismatch-input-token
@@ -41,14 +39,21 @@
   ;; both
   check-output)
 (import
-  (rnrs base (6))
-  (rnrs lists (6))
-  (rnrs records syntactic (6))
+  (scheme base)
   (pitch diagnostic)
   (pitch parse)
   (pitch datum)
-  (only (pitch lines) strip-final-line-ending)
-  (only (pitch reader) token-kind token-text))
+  (pitch lines)
+  (pitch reader))
+(begin
+
+(define-syntax let-values
+  (syntax-rules ()
+    ((_ () body ...) (let () body ...))
+    ((_ (((name ...) expression) rest ...) body ...)
+     (call-with-values (lambda () expression)
+       (lambda (name ...)
+         (let-values (rest ...) body ...))))))
 
 ;;; Layer 1: token equivalence
 
@@ -62,14 +67,14 @@
 ;; are compared byte for byte.
 ;;
 ;; Only comment and shebang tokens can end with a line ending; #| |# ends with
-;; |#, #; ends with the elided datum, and #!r6rs ends with the directive name.
+;; |#, #; ends with the elided datum, and a language directive ends with its name.
 ;; The endings recognized are the ones the reader's grammar counts, with CR+LF
 ;; and CR+NEL counting as one -- (pitch lines) owns that set, shared with the
 ;; layout algebra and the printer.
 
 ;; Kind and text, never position -- formatting changes line and column by
 ;; definition. Kind is not redundant with text: the reader's mode changes
-;; mid-file on #!r6rs and #!r7rs and its fold-case state on #!fold-case, so
+;; mid-file on language directives and its fold-case state on #!fold-case, so
 ;; identical text can lex differently depending on what preceded it. The parsed
 ;; value is not compared; it is derived from the text, and comparing it would
 ;; import layer 2's weakness, since #xff and 255 share a value.
@@ -101,11 +106,12 @@
 ;; against a real token before either list empties. A dropped comment therefore
 ;; reports a comment on one side and the following code token on the other, not
 ;; an absent side.
-(define-record-type mismatch
-  (fields index input-token output-token)
-  (sealed #t)
-  (opaque #f)
-  (nongenerative mismatch-v0-6b1f4d02-8e73-4c19-a5d8-31f0c7b9e264))
+(define-record-type <mismatch>
+  (make-mismatch index input-token output-token)
+  mismatch?
+  (index mismatch-index)
+  (input-token mismatch-input-token)
+  (output-token mismatch-output-token))
 
 ;; Returns three values: whether the sequences are equivalent, the first
 ;; mismatch or #f, and the diagnostics found in either text.
@@ -184,4 +190,4 @@
       ((not (null? token-diagnostics)) (values #f #f token-diagnostics))
       ((not token-ok?) (values #f 'token-equivalence mismatch))
       ((not datum-ok?) (values #f 'datum-equivalence #f))
-      (else (values #t #f #f))))))
+      (else (values #t #f #f)))))))

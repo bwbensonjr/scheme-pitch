@@ -1,0 +1,77 @@
+(import (scheme base) (pitch doc))
+
+(define (check name expected actual)
+  (if (equal? expected actual) #t (error name "mismatch" expected actual)))
+
+(define (raises? thunk)
+  (guard (raised (else #t)) (thunk) #f))
+
+(define (text-value d)
+  (apply string-append (reverse (doc-text-push d '()))))
+
+;; Core constructors and inspection.
+(define a (text "a"))
+(define b (text "b"))
+(check 'text-predicate #t (doc-text? a))
+(check 'text-length 1 (doc-text-len a))
+(check 'text-value "a" (text-value a))
+(check 'newline-predicate #t (doc-newline? nl))
+(check 'newline-flat " " (doc-newline-s nl))
+(check 'hard-newline-flat #f (doc-newline-s hard-nl))
+(check 'concat-predicate #t (doc-concat? (concat a hard-nl)))
+(check 'alt-predicate #t (doc-alt? (alternatives a b)))
+(check 'nest-predicate #t (doc-nest? (nest 2 (concat a hard-nl))))
+(check 'align-predicate #t (doc-align? (align (concat a hard-nl))))
+(check 'reset-predicate #t (doc-reset? (reset (concat a hard-nl))))
+(check 'full-predicate #t (doc-full? (full a)))
+(check 'cost-predicate #t (doc-cost? (cost '(0 1) a)))
+(check 'fail-predicate #t (doc-fail? fail))
+
+;; Static failure sets.
+(check 'text-no-fail-0 #f (doc-fails-statically? a 0))
+(check 'text-fails-1 #t (doc-fails-statically? a 1))
+(check 'empty-fails-1 #t (doc-fails-statically? empty-doc 1))
+(check 'empty-allows-3 #f (doc-fails-statically? empty-doc 3))
+(check 'newline-fails-after #t (doc-fails-statically? nl 2))
+(check 'full-requires-end #t (doc-fails-statically? (full a) 0))
+(check 'fail-all #t (doc-fails-statically? fail 3))
+
+;; Smart constructors.
+(check 'drop-left-empty #t (eq? a (concat empty-doc a)))
+(check 'drop-right-empty #t (eq? a (concat a empty-doc)))
+(define ab (concat a b))
+(check 'merge-text #t (doc-text? ab))
+(check 'merge-order "ab" (text-value ab))
+(check 'full-then-text-fails #t (doc-fail? (concat (full a) b)))
+(check 'choice-left-unit #t (eq? a (alternatives fail a)))
+(check 'choice-right-unit #t (eq? a (alternatives a fail)))
+(check 'choice-idempotent #t (eq? a (alternatives a a)))
+(check 'text-nest-inert #t (eq? a (nest 4 a)))
+(check 'text-align-inert #t (eq? a (align a)))
+(check 'text-reset-inert #t (eq? a (reset a)))
+(define full-a (full a))
+(check 'full-idempotent #t (eq? full-a (full full-a)))
+(check 'cost-fail #t (doc-fail? (cost '(1 0) fail)))
+
+;; Flattening and sharing.
+(check 'flatten-soft "a b" (text-value (flatten (u-append a nl b))))
+(check 'flatten-break "ab" (text-value (flatten (u-append a break b))))
+(check 'flatten-hard-fails #t (doc-fail? (flatten (u-append a hard-nl b))))
+(check 'flatten-align-child " " (text-value (flatten (align nl))))
+(define shared (u-append a nl b))
+(define shared-choice (group shared))
+(check 'group-is-choice #t (doc-alt? shared-choice))
+(check 'group-keeps-original #t (eq? shared (doc-alt-a shared-choice)))
+
+;; Verbatim and folds.
+(check 'verbatim-plain "abc" (text-value (verbatim "abc")))
+(check 'verbatim-break-count 1 (doc-nl-cnt (verbatim "a\nb")))
+(check 'u-empty #t (eq? empty-doc (u-append)))
+(check 'u-single #t (eq? a (u-append a)))
+(check 'u-many "aba" (text-value (u-append a b a)))
+(check 'us-many "a b a" (text-value (flatten (us-append a b a))))
+(check 'v-breaks 2 (doc-nl-cnt (v-append a b a)))
+(check 'u-concat "ab" (text-value (u-concat (list a b))))
+(check 'text-refuses-ending #t (raises? (lambda () (text "a\nb"))))
+
+(display "test-doc-r7rs: ok\n")

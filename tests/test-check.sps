@@ -79,6 +79,7 @@
 ;; The value is not compared, so equal values with different text differ.
 (test-assert (not (token=? (tok "#xff" 0) (tok "255" 0))))
 (test-assert (not (token=? (tok "#t" 0) (tok "#true" 0))))
+(test-assert (not (token=? (tok "#e1@1" 0) (tok "#e01@1" 0))))
 
 (test-end)
 
@@ -269,6 +270,7 @@
 (test-assert (not (equivalent? "1" "1.0")))
 (test-assert (not (equivalent? "\"a\"" "a")))
 (test-assert (not (equivalent? "(a)" "()")))
+(test-assert (not (equivalent? "#e1@1" "#e01@1")))
 
 (test-end)
 
@@ -306,6 +308,10 @@
 (test-assert (equivalent? "\"\\x41;\"" "\"A\""))              ;escape respelled
 (test-assert (equivalent? "#\\nul" "#\\null"))                ;char name changed
 (test-assert (equivalent? "#vu8(1)" "#u8(1)"))                ;dialect spelling
+
+;; Fresh reads of one opaque spelling compare equal. Alternate opaque
+;; spellings are intentionally not a layer-2 normalization.
+(test-assert (equivalent? "#e1@1" "#e1@1"))
 
 (test-end)
 

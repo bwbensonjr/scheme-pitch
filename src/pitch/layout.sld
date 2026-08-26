@@ -64,67 +64,45 @@
 ;; is the claim that it is minimal. It is a different outcome from a document
 ;; with no layout at all, which raises.
 
-#!r6rs
-
-(library (pitch layout)
+(define-library (pitch layout)
 (export
   layout pretty-format layout-result? layout-result-tainted? layout-result-cost
   layout-failure?)
 (import
-  (rnrs base (6))
-  (rnrs control (6))
-  (rnrs lists (6))
-  (rnrs hashtables (6))
-  (rnrs records syntactic (6))
-  (rnrs mutable-strings (6))
-  (rnrs conditions (6))
-  (rnrs exceptions (6))
+  (scheme base)
+  (scheme case-lambda)
   (pitch cost)
-  (only (pitch doc)
-        doc-nl-cnt
-        fullness-index
-        doc-fails-statically?
-        doc-text?
-        doc-text-len
-        doc-text-push
-        doc-newline?
-        doc-concat?
-        doc-concat-a
-        doc-concat-b
-        doc-alt?
-        doc-alt-a
-        doc-alt-b
-        doc-nest?
-        doc-nest-n
-        doc-nest-d
-        doc-align?
-        doc-align-d
-        doc-reset?
-        doc-reset-d
-        doc-full?
-        doc-full-d
-        doc-cost?
-        doc-cost-n
-        doc-cost-d
-        doc-fail?))
+  (pitch doc)
+  (pitch error)
+  (pitch sequence)
+  (pitch table))
+(begin
+
+(define-syntax let-values
+  (syntax-rules ()
+    ((_ () body ...) (begin body ...))
+    ((_ (((name ...) producer)) body ...)
+     (call-with-values (lambda () producer) (lambda (name ...) body ...)))
+    ((_ (((name ...) producer) rest ...) body ...)
+     (call-with-values
+       (lambda () producer)
+       (lambda (name ...)
+         (let-values (rest ...) body ...))))))
 
 ;;; Results
 
-(define-record-type layout-result
-  (fields tainted? cost)
-  (sealed #t)
-  (opaque #f)
-  (nongenerative layout-result-v0-53792707-5078-4525-b28e-93d5a7a8b33d))
+(define-record-type <layout-result>
+  (make-layout-result tainted? cost)
+  layout-result?
+  (tainted? layout-result-tainted?)
+  (cost layout-result-cost))
 
-(define-condition-type &layout-failure &error make-layout-failure layout-failure?)
+(define layout-failure? layout-error?)
 
 (define (raise-layout-failure)
   (raise
-    (condition
-      (make-layout-failure)
-      (make-who-condition 'layout)
-      (make-message-condition
-        "the document denotes no layout: it is `fail`, or every alternative fails"))))
+    (make-layout-error
+      "the document denotes no layout: it is `fail`, or every alternative fails")))
 
 ;;; Measures
 ;;
@@ -133,21 +111,24 @@
 ;; order, onto an accumulator. Building the text lazily this way means the many
 ;; measures that lose a comparison never pay for their output.
 
-(define-record-type measure
-  (fields last cost tokens)
-  (sealed #t)
-  (opaque #f)
-  (nongenerative measure-v0-63b1b2f8-1a84-42fb-b7fe-4bee8245f64a))
+(define-record-type <measure>
+  (make-measure last cost tokens)
+  measure?
+  (last measure-last)
+  (cost measure-cost)
+  (tokens measure-tokens))
 
 ;; A tainted measure set: at most one measure, computed on demand. `nl` is the
 ;; document's overapproximated line-break count, used to choose between two
 ;; tainted candidates -- more breaks is the better guess, since the reason we
 ;; are here is that something overflowed.
-(define-record-type lazy-set
-  (fields nl (mutable thunk) (mutable value) (mutable done?))
-  (sealed #t)
-  (opaque #f)
-  (nongenerative lazy-set-v0-b22f4b4f-3e50-44b7-a45e-55f2ccbf88f7))
+(define-record-type <lazy-set>
+  (make-lazy-set nl thunk value done?)
+  lazy-set?
+  (nl lazy-set-nl)
+  (thunk lazy-set-thunk lazy-set-thunk-set!)
+  (value lazy-set-value lazy-set-value-set!)
+  (done? lazy-set-done? lazy-set-done?-set!))
 
 (define (delayed nl thunk) (make-lazy-set nl thunk #f #f))
 
@@ -196,18 +177,18 @@
          (limit (cost-factory-limit factory))
          (limit+1 (+ limit 1))
          ;; doc -> (eqv hashtable of packed (index, i, c) -> measure set)
-         (memo (make-eq-hashtable))
+         (memo (make-identity-table))
          ;; doc -> set of fullness indexes found to have no layout
-         (dynamic-failure (make-eq-hashtable)))
+         (dynamic-failure (make-identity-table)))
 
     (define (known-failing? d index)
       (or (doc-fails-statically? d index)
-          (if (memv index (hashtable-ref dynamic-failure d '())) #t #f)))
+          (if (memv index (table-ref dynamic-failure d '())) #t #f)))
 
     (define (note-failing! d index)
-      (let ((indexes (hashtable-ref dynamic-failure d '())))
+      (let ((indexes (table-ref dynamic-failure d '())))
         (unless (memv index indexes)
-          (hashtable-set! dynamic-failure d (cons index indexes)))))
+          (table-set! dynamic-failure d (cons index indexes)))))
 
     (define (dominates? m1 m2)
       (and (<= (measure-last m1) (measure-last m2))
@@ -283,17 +264,17 @@
           ;; Past the limit the result is lazy and position-dependent in ways
           ;; the key does not capture, so it is not cached.
           ((or (> c limit) (> i limit)) (resolve-taint d c i beg-full? end-full? index))
-          (else (let* ((table (or (hashtable-ref memo d #f)
-                                  (let ((fresh (make-eqv-hashtable)))
-                                    (hashtable-set! memo d fresh)
+          (else (let* ((table (or (table-ref memo d #f)
+                                  (let ((fresh (make-integer-table)))
+                                    (table-set! memo d fresh)
                                     fresh)))
                        (key (+ (* (+ (* index limit+1) i) limit+1) c))
-                       (hit (hashtable-ref table key #f)))
+                       (hit (table-ref table key #f)))
                   ;; A stored value is a list or a lazy-set, never #f, and the empty
                   ;; list is true in Scheme, so absence is unambiguous.
                   (or hit
                       (let ((computed (resolve-taint d c i beg-full? end-full? index)))
-                        (hashtable-set! table key computed)
+                        (table-set! table key computed)
                         computed)))))))
 
     ;; The taint boundary. A text is measured by where it ends, everything else
@@ -393,7 +374,7 @@
 
         ((doc-fail? d) '())
 
-        (else (assertion-violation 'layout "not a document" d))))
+        (else (error 'layout "not a document" d))))
 
     (let* ((result (merge (resolve d offset 0 #f #f) (resolve d offset 0 #f #t) #f))
            (tainted? (lazy-set? result))
@@ -417,4 +398,4 @@
     ((d) (pretty-format d 80))
     ((d page-width)
       (let-values (((text result) (layout d (default-cost-factory page-width) 0)))
-        text)))))
+        text))))))
