@@ -4,7 +4,7 @@
 
 ;; The reference side of the differential oracle.
 ;;
-;; Reads tests/oracle/documents.scm -- the same file tests/oracle/oracle.sps
+;; Reads tests/oracle/documents.scm -- the same file tests/oracle/oracle-emit.scm
 ;; reads -- builds each entry with Racket's pretty-expressive, and writes one
 ;; line per entry in the same format. `make oracle-layout` diffs this against
 ;; the pitch side.
@@ -56,7 +56,7 @@
        [else (error 'build "unknown document form: ~s" e)])]
     [else (error 'build "not a document expression: ~s" e)]))
 
-;; See the matching comment in oracle.sps: a stray paren would put some entries
+;; See the matching comment in oracle-emit.scm: a stray paren would put some entries
 ;; outside the list, both drivers would skip them identically, and the diff
 ;; would still pass on a corpus smaller than the file.
 (define (read-corpus path)

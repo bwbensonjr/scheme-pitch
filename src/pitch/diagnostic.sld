@@ -22,25 +22,20 @@
 (export
   make-diagnostic diagnostic? diagnostic-message diagnostic-token diagnostic-line
   diagnostic-column sort-diagnostics)
-(import
-  (scheme base)
-  (pitch sequence)
-  (pitch reader))
+(import (scheme base) (pitch sequence) (pitch reader))
 (begin
 
-(define-record-type <diagnostic>
-  (make-diagnostic message token)
-  diagnostic?
-  (message diagnostic-message)
-  (token diagnostic-token))
+  (define-record-type <diagnostic> (make-diagnostic message token) diagnostic?
+    (message diagnostic-message)
+    (token diagnostic-token))
 
-(define (diagnostic-line d) (token-start-line (diagnostic-token d)))
-(define (diagnostic-column d) (token-start-column (diagnostic-token d)))
+  (define (diagnostic-line d) (token-start-line (diagnostic-token d)))
+  (define (diagnostic-column d) (token-start-column (diagnostic-token d)))
 
-;; Source order. Every diagnostic is anchored to a token, and token start
-;; offsets are strictly increasing, so this is a total order.
-(define (sort-diagnostics ds)
-  (list-sort
-    (lambda (a b)
-      (< (token-start (diagnostic-token a)) (token-start (diagnostic-token b))))
-    ds))))
+  ;; Source order. Every diagnostic is anchored to a token, and token start
+  ;; offsets are strictly increasing, so this is a total order.
+  (define (sort-diagnostics ds)
+    (list-sort
+      (lambda (a b)
+        (< (token-start (diagnostic-token a)) (token-start (diagnostic-token b))))
+      ds))))

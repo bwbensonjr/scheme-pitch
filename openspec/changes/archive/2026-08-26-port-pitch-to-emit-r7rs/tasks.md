@@ -31,37 +31,37 @@
 - [x] 4.3 Port the CST and parser libraries to R7RS ports, records, and sequence utilities; verify byte-for-byte CST round trips, malformed-input diagnostics, bracket distinctions, trivia retention, and source positions remain unchanged
 - [x] 4.4 Port the datum and check libraries, including label tables and fresh-text layer 1/layer 2 checks; verify all projection, cyclic graph, bytevector, token-equivalence, and mutation-witness tests pass under Emit
 - [x] 4.5 Port the layout library using the Pitch identity tables and fullness-index sets; verify written layout expectations and the full document corpus match Chez for text, cost, taint, and failure outcomes, and record a representative corpus timing comparison
-- [ ] 4.6 Port the print, configuration, and format pipeline libraries; verify style lookup remains data-driven, malformed configuration is refused before source I/O, formatter output matches the baseline, and every safety check still re-reads emitted text
-- [ ] 4.7 Port the CLI driver to R7RS errors, ports, sorting, and folds without importing Emit-specific libraries; verify the in-memory host suite preserves argument validation, traversal selection, reporting, write logs, refusal behavior, and exit statuses
-- [ ] 4.8 Audit every maintained `.sld` library for dialect branching, host reader calls, undeclared normalization, executable configuration, and direct operating-system access below the real-host edge; verify the invariant audit finds none
+- [x] 4.6 Port the print, configuration, and format pipeline libraries; verify style lookup remains data-driven, malformed configuration is refused before source I/O, formatter output matches the baseline, and every safety check still re-reads emitted text
+- [x] 4.7 Port the CLI driver to R7RS errors, ports, sorting, and folds without importing Emit-specific libraries; verify the in-memory host suite preserves argument validation, traversal selection, reporting, write logs, refusal behavior, and exit statuses
+- [x] 4.8 Audit every maintained `.sld` library for dialect branching, host reader calls, undeclared normalization, executable configuration, and direct operating-system access below the real-host edge; verify the invariant audit finds none
 
 ## 5. Port the Test Harness to the Shipped Target
 
-- [ ] 5.1 Add an R7RS/Emit test runner and convert Pitch-specific test programs without changing their assertions or fixtures; verify each library test compiles as an Emit program from the repository root
-- [ ] 5.2 Preserve host-reader and layout comparisons as explicit external oracle targets whose inputs come from real serialized output; verify no oracle is used by the runtime application and no check compares an in-memory tree with itself
-- [ ] 5.3 Add UTF-8, CRLF, Unicode, and interior-line-ending tests through real Emit textual file ports; verify byte-level input/output behavior preserves accepted text and refuses unsupported multi-line token endings without writing
-- [ ] 5.4 Add a no-Chez-on-`PATH` build and standard-input smoke test; verify the complete application compiles and formats with Emit alone while development-only oracle tests are clearly separated
+- [x] 5.1 Add an R7RS/Emit test runner and convert Pitch-specific test programs without changing their assertions or fixtures; verify each library test compiles as an Emit program from the repository root
+- [x] 5.2 Preserve host-reader and layout comparisons as explicit external oracle targets whose inputs come from real serialized output; verify no oracle is used by the runtime application and no check compares an in-memory tree with itself
+- [x] 5.3 Add UTF-8, CRLF, Unicode, and interior-line-ending tests through real Emit textual file ports; verify byte-level input/output behavior preserves accepted text and refuses unsupported multi-line token endings without writing
+- [x] 5.4 Add a no-Chez-on-`PATH` build and standard-input smoke test; verify the complete application compiles and formats with Emit alone while development-only oracle tests are clearly separated
 
 ## 6. Build and Run the Complete Emit Application
 
-- [ ] 6.1 Add `emit-libs.scm` entries for every Pitch library with paths relative to the manifest; verify Emit resolves and compiles the transitive library closure from a working directory outside the checkout
-- [ ] 6.2 Add the R7RS program entry and real host adapter importing only standard R7RS libraries, `(pitch cli)`, and `(emit filesystem)`; verify all ten host operations map correctly and no CLI policy moves into the adapter
-- [ ] 6.3 Add real filesystem integration tests for deterministic directory walking, supported-extension selection, symlink non-traversal, unchanged files, refused files, failed temporary writes, and atomic replacement; verify effects and exit statuses satisfy the existing CLI specs
-- [ ] 6.4 Add the manifest `(program pitch ...)` entry and development/build targets using the same source and manifest; verify `emit run` receives arguments after `--` and `emit build pitch` produces the configured standalone executable
-- [ ] 6.5 Add development/AOT parity tests for help, version, stdin, stdout, check, in-place formatting, configuration errors, malformed source, multi-file continuation, and directory operands; verify stdout, diagnostic class/text, filesystem effects, and exit status agree
-- [ ] 6.6 Add self-format and self-check targets using the Emit application; verify formatting the maintained Pitch R7RS sources is idempotent and the second run writes nothing
+- [x] 6.1 Add `emit-libs.scm` entries for every Pitch library with paths relative to the manifest; verify Emit resolves and compiles the transitive library closure from a working directory outside the checkout
+- [x] 6.2 Add the R7RS program entry and real host adapter importing only standard R7RS libraries, `(pitch cli)`, and `(emit filesystem)`; verify all ten host operations map correctly and no CLI policy moves into the adapter
+- [x] 6.3 Add real filesystem integration tests for deterministic directory walking, supported-extension selection, symlink non-traversal, unchanged files, refused files, failed temporary writes, and atomic replacement; verify effects and exit statuses satisfy the existing CLI specs
+- [x] 6.4 Add the manifest `(program pitch ...)` entry and development/build targets using the same source and manifest; verify `emit run` receives arguments after `--` and `emit build pitch` produces the configured standalone executable
+- [x] 6.5 Add development/AOT parity tests for help, version, stdin, stdout, check, in-place formatting, configuration errors, malformed source, multi-file continuation, and directory operands; verify stdout, diagnostic class/text, filesystem effects, and exit status agree
+- [x] 6.6 Add self-format and self-check targets using the Emit application; verify formatting the maintained Pitch R7RS sources is idempotent and the second run writes nothing
 
 ## 7. Package the Standalone Program and Retire the Chez Application
 
-- [ ] 7.1 Copy the shipped default configuration beside build output and add a relocatable libexec-plus-launcher install layout; verify an installed Pitch still formats after the source checkout and build directory are moved away
-- [ ] 7.2 Update uninstall to remove only the installed Pitch launcher/libexec/configuration paths; verify an install-uninstall round trip leaves unrelated prefix files untouched
-- [ ] 7.3 Remove the complete Chez launcher, wrapper generation, application build/install targets, and R6RS application libraries only after Emit parity is green; verify no shipped executable or manifest resolves Chez and the retained reader/oracle commands still run
-- [ ] 7.4 Update README, `docs/DESIGN.md`, build help, and source headers to state the Emit/R7RS target, the Chez-oracle boundary, opaque numeric behavior, external filesystem prerequisite, and migration from R6RS library use; verify all documented commands work as written
+- [x] 7.1 Copy the shipped default configuration beside build output and add a relocatable libexec-plus-launcher install layout; verify an installed Pitch still formats after the source checkout and build directory are moved away
+- [x] 7.2 Update uninstall to remove only the installed Pitch launcher/libexec/configuration paths; verify an install-uninstall round trip leaves unrelated prefix files untouched
+- [x] 7.3 Remove the complete Chez launcher, wrapper generation, application build/install targets, and R6RS application libraries only after Emit parity is green; verify no shipped executable or manifest resolves Chez and the retained reader/oracle commands still run
+- [x] 7.4 Update README, `docs/DESIGN.md`, build help, and source headers to state the Emit/R7RS target, the Chez-oracle boundary, opaque numeric behavior, external filesystem prerequisite, and migration from R6RS library use; verify all documented commands work as written
 
 ## 8. Final Verification
 
-- [ ] 8.1 Run the primary test target from the repository root; verify all Pitch-specific Emit tests, reader baseline/parity, generated-source checks, real-host tests, and development/AOT parity checks pass
-- [ ] 8.2 Run `make vendor-diff` and `make vendor-verify`; verify the former remains the reviewable authoritative reader changeset and the latter reports every vendored file pristine
-- [ ] 8.3 Run the Racket layout oracle where available and the full self-format/idempotence corpus; verify output text, cost, taint, token equivalence, datum equivalence, and second-run stability all pass
-- [ ] 8.4 Run a clean no-Chez standalone build, relocatable install smoke test, and uninstall test; verify the delivered command uses no checkout path and preserves shell-visible exit statuses 0, 1, and 2
-- [ ] 8.5 Run `openspec validate port-pitch-to-emit-r7rs --strict` and review the final diff against every proposal capability and codebase invariant; verify no R6RS compatibility layer, vendor edit, weakened safety check, new normalization, or narrowed CLI behavior entered the change
+- [x] 8.1 Run the primary test target from the repository root; verify all Pitch-specific Emit tests, reader baseline/parity, generated-source checks, real-host tests, and development/AOT parity checks pass
+- [x] 8.2 Run `make vendor-diff` and `make vendor-verify`; verify the former remains the reviewable authoritative reader changeset and the latter reports every vendored file pristine
+- [x] 8.3 Run the Racket layout oracle where available and the full self-format/idempotence corpus; verify output text, cost, taint, token equivalence, datum equivalence, and second-run stability all pass
+- [x] 8.4 Run a clean no-Chez standalone build, relocatable install smoke test, and uninstall test; verify the delivered command uses no checkout path and preserves shell-visible exit statuses 0, 1, and 2
+- [x] 8.5 Run `openspec validate port-pitch-to-emit-r7rs --strict` and review the final diff against every proposal capability and codebase invariant; verify no R6RS compatibility layer, vendor edit, weakened safety check, new normalization, or narrowed CLI behavior entered the change

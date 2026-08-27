@@ -1,4 +1,3 @@
-#!/usr/bin/env scheme-script
 ;; -*- mode: scheme; coding: utf-8 -*- !#
 ;; Copyright © 2026 Brent Benson
 ;; SPDX-License-Identifier: MIT
@@ -6,22 +5,23 @@
 ;; Tests for the output safety checks: layer 1 token equivalence, layer 2 datum
 ;; equivalence, and the combined runner.
 ;;
-;; The layer 2 groups moved here unchanged from tests/test-datum.sps, which
-;; keeps the projection tests. They arrived there because the projection and
-;; the check shipped together; with two checks in (pitch check) they belong
-;; with their sibling.
+;; Layer 2 lives here with layer 1 and the combined runner; projection-specific
+;; expectations remain in tests/test-datum-r7rs.scm.
 ;;
 ;; The negative tests matter more than the positive ones throughout. A
 ;; comparator that returns #t unconditionally passes every positive test in
 ;; this file.
-#!r6rs
-
 (import
-  (rnrs (6))
+  (scheme base)
   (pitch reader)
   (pitch parse)
   (pitch check)
   (tests runner))
+
+(define-syntax let-values
+  (syntax-rules ()
+    ((_ (((name ...) producer)) body ...)
+     (call-with-values (lambda () producer) (lambda (name ...) body ...)))))
 
 ;;; Layer 1 helpers
 

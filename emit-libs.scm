@@ -16,6 +16,7 @@
  (library (pitch parse) (source "src/pitch/parse.sld"))
  (library (pitch datum) (source "src/pitch/datum.sld"))
  (library (pitch check) (source "src/pitch/check.sld"))
+ (library (pitch cli) (source "src/pitch/cli.sld"))
  (library (tests runner) (source "tests/runner.sld"))
  (library (tests config) (source "tests/config.sld"))
  (program test-sequence
@@ -30,6 +31,12 @@
  (program test-generated-number
           (source "tests/test-generated-number.scm")
           (output "build/test-generated-number"))
+ (program test-number-syntax-r7rs
+          (source "tests/test-number-syntax-r7rs.scm")
+          (output "build/test-number-syntax-r7rs"))
+ (program test-recording-r7rs
+          (source "tests/test-recording-r7rs.scm")
+          (output "build/test-recording-r7rs"))
  (program test-lines
           (source "tests/test-lines.scm")
           (output "build/test-lines"))
@@ -51,6 +58,12 @@
  (program test-datum-check-r7rs
           (source "tests/test-datum-check-r7rs.scm")
           (output "build/test-datum-check-r7rs"))
+ (program test-datum-r7rs
+          (source "tests/test-datum-r7rs.scm")
+          (output "build/test-datum-r7rs"))
+ (program test-check-r7rs
+          (source "tests/test-check-r7rs.scm")
+          (output "build/test-check-r7rs"))
  (program test-layout-r7rs
           (source "tests/test-layout-r7rs.scm")
           (output "build/test-layout-r7rs"))
@@ -63,6 +76,15 @@
  (program test-format-r7rs
           (source "tests/test-format-r7rs.scm")
           (output "build/test-format-r7rs"))
+ (program test-cli-r7rs
+          (source "tests/test-cli-r7rs.scm")
+          (output "build/test-cli-r7rs"))
+ (program test-text-files-r7rs
+          (source "tests/test-text-files-r7rs.scm")
+          (output "build/test-text-files-r7rs"))
+ (program pitch
+          (source "src/pitch/main.scm")
+          (output "build/pitch"))
  (program layout-oracle-emit
           (source "tests/oracle/oracle-emit.scm")
           (output "build/layout-oracle-emit")))

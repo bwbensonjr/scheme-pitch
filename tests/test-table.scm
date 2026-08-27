@@ -36,6 +36,16 @@
 (check 'identity-second 'second (table-ref identities second #f))
 (check 'identity-size 2 (table-size identities))
 
+(define equal-first (list 'same 'value))
+(define equal-second (list 'same 'value))
+(check 'lists-have-equal-structure #t (equal? equal-first equal-second))
+(check 'equal-lists-are-distinct #f (eq? equal-first equal-second))
+(table-set! identities equal-first 'equal-first)
+(table-set! identities equal-second 'equal-second)
+(check 'equal-identity-first 'equal-first (table-ref identities equal-first #f))
+(check 'equal-identity-second 'equal-second (table-ref identities equal-second #f))
+(check 'equal-identity-size 4 (table-size identities))
+
 (define cycle-a (cons 'cycle '()))
 (define cycle-b (cons 'cycle '()))
 (set-cdr! cycle-a cycle-a)

@@ -4,19 +4,25 @@ A reflowing, opinionated code formatter for the Scheme programming language.
 [`black`](https://github.com/psf/black) is one influence on its safety and
 workflow, not a contract to copy Black's configuration model.
 
-Pitch formats R6RS and R7RS source. It is itself written in R6RS Scheme and
-developed against [Chez Scheme](https://github.com/cisco/chezscheme); the
-dialect of the code being formatted is independent of the implementation pitch
-runs on.
+Pitch formats R6RS and R7RS source. The maintained application is written in
+R7RS-small and compiled by [Emit](https://github.com/bwbensonjr/emit); the
+dialect of the code being formatted is independent of the implementation Pitch
+runs on. Chez remains only as an independent development oracle for the
+authoritative derived reader and host-reader comparisons.
 
 ## Usage
 
-```
-make bin/pitch                 # wrapper for this checkout
-make install PREFIX=~/.local   # or install it somewhere on PATH
+```sh
+make pitch-run PITCH_ARGS='--help'  # development door through emit run
+make pitch-build                    # standalone build/pitch executable
+make install PREFIX=~/.local        # relocatable launcher and private executable
 ```
 
-The wrapper execs Chez, so `chez` must be on `PATH` at run time.
+Building requires Emit revision
+`41c6f43cd60d205230bc2771d2acc7a5142e0826` or newer. The prerequisite includes
+the ordinary `(emit filesystem)` library used only by the real host adapter for
+directory inspection, symlink classification, and atomic replacement. The
+standalone executable and installed command require neither Chez nor Racket.
 
 Pitch formats itself. Run this before committing:
 
@@ -25,12 +31,11 @@ make format         # format pitch's own sources in place
 make format-check   # the same question without the rewrite
 ```
 
-`FORMAT_SOURCES` in the `Makefile` is the project's own libraries — the code
-pitch is built from and owns. `src/pitch/reader.sls` is deliberately excluded:
-it is derived from `vendor/laesare/reader.sls`, and the diff between them has to
-stay legible because it is the candidate patch to offer upstream. Derived code is
-left alone for the same reason vendored code is never edited, and `tests/` is out
-of scope because those files do not build the tool.
+`PITCH_FORMAT_SOURCES` in the `Makefile` is the maintained R7RS application
+source. Both `src/pitch/reader.sls`, the authoritative reader derived from
+laesare, and generated `src/pitch/reader.sld` are deliberately excluded: their
+byte-identical generator check and upstream diff own their formatting. Vendored
+code is never edited, and tests are outside the application source set.
 
 ```
 pitch f.sls                 rewrite f.sls in place
@@ -193,13 +198,12 @@ The long tail of per-dialect library macros is not chased, and the cost objectiv
 is still the reference implementation's rather than pitch's. Both want a corpus
 to argue from.
 
-The port is checked against the original. `make oracle-layout` renders a corpus
-through both `(pitch layout)` and Racket's `pretty-expressive` and requires the
-text, the cost and the taint flag to agree — the same discipline the datum
-projection uses with Chez's `read`, and for the same reason: written
-expectations confirm the cases you thought of, and only an independent
-implementation finds the ones you did not. It needs Racket, so it is not part of
-`make test`, which runs on Chez alone.
+The port is checked against independent implementations. `make oracle-layout`
+renders a corpus through Emit Pitch and Racket's `pretty-expressive` and requires
+the text, cost, and taint flag to agree. `make oracle-datum` compares serialized
+Emit projections with Chez host-reader output. These are development oracles,
+not runtime dependencies; the primary `make test` exercises the shipped target
+through Emit and retains Chez only at those explicit oracle boundaries.
 
 ## Safety checks
 
@@ -250,14 +254,15 @@ flat.
 Layer 2 is kept despite being weaker because it is a separate code path, and
 because `cst->datum` is the only layer that sees defects structure cannot show:
 `(#1#)` and `#vu8(300)` both parse clean and are reported there. Comparing two
-projections is `equal?`, which R6RS requires to terminate on circular arguments,
-so `#0=(a . #0#)` needs no comparator of pitch's own.
+projections is the named `datum=?` operation backed by Emit's cycle-safe
+`equal?`, so `#0=(a . #0#)` needs no second comparator of Pitch's own.
 
 Pitch does not use any host implementation's `read` at runtime — that would make
 the guarantee vary by platform. Host readers are used as *test* oracles only:
-CI differential-tests `cst->datum` against Chez today, and against Chibi and
-Gauche once the corpus harness exists. An oracle only covers what it accepts, so
-datum labels — which Chez's reader rejects — rest on written expectations.
+CI differential-tests serialized `cst->datum` output against Chez today. An
+oracle only covers values both hosts represent and syntax it accepts, so datum
+labels and Emit's private opaque numeric values rest on direct written
+expectations.
 
 ### Declared normalizations
 
@@ -298,23 +303,25 @@ can tell which standard it is looking at.
 ## Repository layout
 
 ```
-src/pitch/reader.sls     derived lossless reader (see header for changes)
-src/pitch/cst.sls        CST node types and cst->text
-src/pitch/parse.sls      tokenizing and parsing, with diagnostics
-src/pitch/diagnostic.sls one defect, anchored to a token; shared vocabulary
-src/pitch/lines.sls      what counts as a line ending, defined once
-src/pitch/datum.sls      cst->datum, the projection to host Scheme data
-src/pitch/check.sls      layers 1 and 2, and the combined runner
-src/pitch/doc.sls        the document algebra the layout engine resolves
-src/pitch/cost.sls       the cost factory interface and the default objective
-src/pitch/layout.sls     the Pi-e layout engine
-src/pitch/style.sls      the closed style grammar and table construction
-src/pitch/config.sls     inert configuration parsing and composition
+src/pitch/reader.sls     authoritative derived reader (see header for changes)
+src/pitch/reader.sld     generated Emit reader; never hand-edited
+src/pitch/cst.sld        CST node types and cst->text
+src/pitch/parse.sld      tokenizing and parsing, with diagnostics
+src/pitch/diagnostic.sld one defect, anchored to a token; shared vocabulary
+src/pitch/lines.sld      what counts as a line ending, defined once
+src/pitch/datum.sld      cst->datum, including private opaque numeric values
+src/pitch/check.sld      layers 1 and 2, and the combined runner
+src/pitch/doc.sld        the document algebra the layout engine resolves
+src/pitch/cost.sld       the cost factory interface and the default objective
+src/pitch/layout.sld     the Pi-e layout engine
+src/pitch/style.sld      the closed style grammar and table construction
+src/pitch/config.sld     inert configuration parsing and composition
 src/pitch/default-config.scm external width, dialect, and style defaults
-src/pitch/print.sls      cst->document: the translation, and comment placement
-src/pitch/format.sls     the end-to-end pipeline, and what it refuses
-src/pitch/cli.sls        the argument grammar, the write rules, the exit status
-src/pitch/main.sps       the `pitch` program: builds a host, holds no decisions
+src/pitch/print.sld      cst->document: the translation, and comment placement
+src/pitch/format.sld     the end-to-end pipeline, and what it refuses
+src/pitch/cli.sld        the argument grammar, write rules, and exit status
+src/pitch/main.scm       thin standard-R7RS plus (emit filesystem) host adapter
+emit-libs.scm            every Pitch library, test program, and program pitch
 vendor/laesare/          pristine upstream copy, never edited
 tests/                   regression baseline plus pitch's own tests
 tests/oracle/            one corpus, rendered by pitch and by pretty-expressive
@@ -336,23 +343,19 @@ make vendor-verify    # confirm vendor/ has not been edited
 ```
 
 `tests/test-reader.sps` is laesare's own suite, ported only far enough to run
-against `(pitch reader)`; it is the evidence that the vendored lexical analysis
-still behaves identically. `tests/test-recording.sps` covers what pitch adds to
-the reader, `tests/test-cst.sps` the CST layer, `tests/test-datum.sps` the datum
-projection, `tests/test-check.sps` the safety checks, `tests/test-doc.sps` the
-document algebra, `tests/test-layout.sps` the layout engine,
-`tests/test-print.sps` the CST-to-document translation,
-`tests/test-config.sps` configuration parsing and composition,
-`tests/test-format.sps` the end-to-end pipeline — including idempotence over
-every one of pitch's own source files — and `tests/test-cli.sps` the command
-line.
+against authoritative `(pitch reader)` under Chez. Pitch-specific `*-r7rs.scm`
+programs compile and run as standalone Emit executables; they cover recording,
+CST, datum projection, safety checks, document/layout, translation,
+configuration, formatting, and the CLI.
 
-`tests/test-cli.sps` drives the CLI against an in-memory host rather than the
+`tests/test-cli-r7rs.scm` drives the CLI against an in-memory host rather than the
 filesystem, which is what lets it assert the claims that matter in that layer.
 They are all negative — a refused file is *not* written, an already-formatted
 file is *not* written — and against a real filesystem those mean comparing
 modification times and hoping about clock resolution. Against an association
-list and a write log they are exact.
+list and a write log they are exact. `tests/test-real-host.sh` then verifies the
+ten real adapter operations, and `tests/test-door-parity.sh` compares complete
+development/AOT output, status, diagnostics, and filesystem effects.
 
 See [`vendor/laesare/VENDOR.md`](vendor/laesare/VENDOR.md) for the pin and the
 refresh procedure.
@@ -365,7 +368,8 @@ refresh procedure.
 - [Racket `fmt`](https://docs.racket-lang.org/fmt/index.html) — the closest existing analogue for a Lisp.
 - [SRFI 272: Pretty Printing](https://srfi.schemers.org/srfi-272/) — source of the style grammar used as pitch's configuration format.
 - [*A Pretty Expressive Printer*](https://arxiv.org/abs/2310.01530) — the layout algorithm.
-- [Chez Scheme](https://github.com/cisco/chezscheme) — pitch's host implementation.
+- [Emit](https://github.com/bwbensonjr/emit) — Pitch's supported R7RS-small compiler and runtime.
+- [Chez Scheme](https://github.com/cisco/chezscheme) — development-only reader and datum oracle.
 
 ## License
 

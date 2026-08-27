@@ -44,89 +44,88 @@
   (pitch reader))
 (begin
 
-(define-syntax let-values
-  (syntax-rules ()
-    ((_ (((name ...) producer)) body ...)
-     (call-with-values (lambda () producer) (lambda (name ...) body ...)))))
+  (define-syntax let-values
+    (syntax-rules ()
+      ((_ (((name ...) producer)) body ...)
+        (call-with-values (lambda () producer) (lambda (name ...) body ...)))))
 
-;; status   one of ok, unclean-parse, unsupported-line-ending, check-failed
-;; detail   what belongs to that status: a diagnostics list, the offending
-;;          token, the failing layer, or #f
-;; tainted? whether the layout engine proved its result minimal
-(define-record-type <format-result>
-  (make-format-result status detail tainted?)
-  format-result?
-  (status format-result-status)
-  (detail format-result-detail)
-  (tainted? format-result-tainted?))
+  ;; status   one of ok, unclean-parse, unsupported-line-ending, check-failed
+  ;; detail   what belongs to that status: a diagnostics list, the offending
+  ;;          token, the failing layer, or #f
+  ;; tainted? whether the layout engine proved its result minimal
+  (define-record-type <format-result> (make-format-result status detail
+                                       tainted?) format-result?
+    (status format-result-status)
+    (detail format-result-detail)
+    (tainted? format-result-tainted?))
 
-;;; Stage 2: line endings the engine cannot reproduce
-;;
-;; The resolver renders every break as a linefeed. Between tokens that is
-;; harmless -- those endings live in whitespace, which the formatter re-derives,
-;; and re-deriving whitespace is the one change pitch is allowed to make. Inside
-;; a token it is not: a CRLF within a multi-line string or a #| |# block is part
-;; of a text that token equivalence compares, and emitting it as a linefeed
-;; would change that text.
-;;
-;; So such a source is refused up front. Normalizing it is prohibited -- the
-;; declared-normalizations list is empty and every entry needs a proposal
-;; arguing for it -- and letting layer 1 catch it after the fact would report a
-;; printer bug for what is really a known unsupported input. This can be lifted
-;; by teaching (pitch doc) which ending to render, which is a change to the
-;; algebra and wants its own proposal.
-;;
-;; The trailing ending of a line comment is not interior and is not screened:
-;; the printer splits it off and emits an explicit break in its place.
-(define (foreign-interior-ending? text)
-  (let* ((body (strip-final-line-ending text)) (n (string-length body)))
-    (let loop ((i 0))
-      (cond
-        ((= i n) #f)
-        ((char=? (string-ref body i) #\x0a) (loop (+ i 1)))
-        ((line-ending-char? (string-ref body i)) #t)
-        (else (loop (+ i 1)))))))
+  ;;; Stage 2: line endings the engine cannot reproduce
+  ;;
+  ;; The resolver renders every break as a linefeed. Between tokens that is
+  ;; harmless -- those endings live in whitespace, which the formatter re-derives,
+  ;; and re-deriving whitespace is the one change pitch is allowed to make. Inside
+  ;; a token it is not: a CRLF within a multi-line string or a #| |# block is part
+  ;; of a text that token equivalence compares, and emitting it as a linefeed
+  ;; would change that text.
+  ;;
+  ;; So such a source is refused up front. Normalizing it is prohibited -- the
+  ;; declared-normalizations list is empty and every entry needs a proposal
+  ;; arguing for it -- and letting layer 1 catch it after the fact would report a
+  ;; printer bug for what is really a known unsupported input. This can be lifted
+  ;; by teaching (pitch doc) which ending to render, which is a change to the
+  ;; algebra and wants its own proposal.
+  ;;
+  ;; The trailing ending of a line comment is not interior and is not screened:
+  ;; the printer splits it off and emits an explicit break in its place.
+  (define (foreign-interior-ending? text)
+    (let* ((body (strip-final-line-ending text)) (n (string-length body)))
+      (let loop ((i 0))
+        (cond
+          ((= i n) #f)
+          ((char=? (string-ref body i) #\x0a) (loop (+ i 1)))
+          ((line-ending-char? (string-ref body i)) #t)
+          (else (loop (+ i 1)))))))
 
-(define (find-foreign-token tokens)
-  (cond
-    ((null? tokens) #f)
-    ((foreign-interior-ending? (token-text (car tokens))) (car tokens))
-    (else (find-foreign-token (cdr tokens)))))
+  (define (find-foreign-token tokens)
+    (cond
+      ((null? tokens) #f)
+      ((foreign-interior-ending? (token-text (car tokens))) (car tokens))
+      (else (find-foreign-token (cdr tokens)))))
 
-;;; The pipeline
+  ;;; The pipeline
 
-(define (format-source source filename config)
-  (unless (resolved-config? config)
-    (error 'format-source "Expected a resolved configuration" config))
-  (let ((width (config-width config))
-        (table (config-style-table config (config-dialect config))))
-    (let-values (((tree diagnostics) (parse-source source filename)))
-      (cond
-        ;; Stage 1. A tree is clean exactly when its diagnostics list is empty,
-        ;; and an unclean one is refused rather than repaired.
-        ((not (null? diagnostics))
-          (values #f (make-format-result 'unclean-parse diagnostics #f)))
-        (else
-          (let ((foreign (find-foreign-token (cst-tokens tree))))
-            (cond
-              ;; Stage 2.
-              (foreign
-                (values #f (make-format-result 'unsupported-line-ending foreign #f)))
-              (else
-                ;; Stage 3. A document with no layout at all raises out of
-                ;; (pitch layout), and is deliberately not caught: that is a bug
-                ;; in the translation, not a property of the input, and turning
-                ;; it into a status would hide it.
-                (let-values (((output result) (layout (cst->document tree table)
-                                                      (default-cost-factory width))))
-                  (let ((tainted? (layout-result-tainted? result)))
-                    ;; Stage 4. Two texts: the one that came in, and the one just
-                    ;; produced. Never the tree either was built from.
-                    (let-values (((ok? layer detail) (check-output source output)))
-                      (if ok?
-                          (values output (make-format-result 'ok #f tainted?))
-                          (values #f
-                                  (make-format-result
-                                    'check-failed
-                                    (if layer (cons layer detail) detail)
-                                    tainted?))))))))))))))))
+  (define (format-source source filename config)
+    (unless (resolved-config? config)
+      (error 'format-source "Expected a resolved configuration" config))
+    (let ((width (config-width config))
+          (table (config-style-table config (config-dialect config))))
+      (let-values (((tree diagnostics) (parse-source source filename)))
+        (cond
+          ;; Stage 1. A tree is clean exactly when its diagnostics list is empty,
+          ;; and an unclean one is refused rather than repaired.
+          ((not (null? diagnostics))
+            (values #f (make-format-result 'unclean-parse diagnostics #f)))
+          (else
+            (let ((foreign (find-foreign-token (cst-tokens tree))))
+              (cond
+                ;; Stage 2.
+                (foreign
+                  (values #f (make-format-result 'unsupported-line-ending foreign #f)))
+                (else
+                  ;; Stage 3. A document with no layout at all raises out of
+                  ;; (pitch layout), and is deliberately not caught: that is a bug
+                  ;; in the translation, not a property of the input, and turning
+                  ;; it into a status would hide it.
+                  (let-values (((output result) (layout (cst->document tree table)
+                                                        (default-cost-factory width))))
+                    (let ((tainted? (layout-result-tainted? result)))
+                      ;; Stage 4. Two texts: the one that came in, and the one just
+                      ;; produced. Never the tree either was built from.
+                      (let-values (((ok? layer detail) (check-output source output)))
+                        (if ok?
+                            (values output (make-format-result 'ok #f tainted?))
+                            (values #f
+                                    (make-format-result
+                                      'check-failed
+                                      (if layer (cons layer detail) detail)
+                                      tainted?))))))))))))))))

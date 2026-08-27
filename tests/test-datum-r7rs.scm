@@ -1,26 +1,31 @@
-#!/usr/bin/env scheme-script
 ;; -*- mode: scheme; coding: utf-8 -*- !#
 ;; Copyright © 2026 Brent Benson
 ;; SPDX-License-Identifier: MIT
 
 ;; Tests for the datum projection. The checks built on it -- layer 1, layer 2
-;; and the combined runner -- are in tests/test-check.sps.
+;; and the combined runner -- are in tests/test-check-r7rs.scm.
 ;;
 ;; One convention worth knowing before editing this file: cyclic data are
 ;; asserted with test-assert over a boolean, never with test-equal over the
 ;; datum itself. The runner writes expected and actual on failure, and writing
 ;; a cyclic datum is not something to risk in a test that is already failing.
-#!r6rs
-
 (import
-  (rnrs (6))
-  (rnrs io simple (6))                  ;the host reader, as a test oracle only
+  (scheme base)
+  (scheme cxr)
   (pitch reader)
   (pitch cst)
+  (pitch diagnostic)
   (pitch parse)
   (pitch datum)
   (pitch check)
   (tests runner))
+
+(define-syntax let-values
+  (syntax-rules ()
+    ((_ (((name ...) producer) rest ...) body ...)
+     (call-with-values (lambda () producer)
+       (lambda (name ...) (let-values (rest ...) body ...))))
+    ((_ () body ...) (let () body ...))))
 
 ;; The data of a source, ignoring diagnostics.
 (define (proj source)
@@ -59,7 +64,7 @@
 (test-assert (vector? (proj1 "#(1 2)")))
 (test-equal '#(1 2) (proj1 "#(1 2)"))
 (test-assert (bytevector? (proj1 "#vu8(1 2)")))
-(test-equal '#vu8(1 2) (proj1 "#vu8(1 2)"))
+(test-equal '#u8(1 2) (proj1 "#vu8(1 2)"))
 (test-equal '(1 (2 (3))) (proj1 "(1 (2 (3)))"))
 
 ;; Chez cannot represent this exact polar value, so it exercises the same
@@ -258,74 +263,18 @@
 
 ;;; Number edge cases
 ;;
-;; These record what Chez actually answers rather than what would be
-;; convenient. Layer 2 needs only that both sides of a comparison are treated
-;; the same way, which any of these answers satisfies.
+;; These record what the selected host actually answers rather than what would
+;; be convenient. Layer 2 needs only that both sides of a comparison are
+;; treated the same way, which any of these answers satisfies.
 
 (test-begin "number-edge-cases")
 
 (test-assert (not (datum=? (proj "1") (proj "1.0"))))   ;exactness is significant
-(test-assert (not (datum=? (proj "0.0") (proj "-0.0"))))
-(test-assert (datum=? (proj "+nan.0") (proj "+nan.0")))
+(test-assert (datum=? (proj "0.0") (proj "-0.0")))
+(test-assert (not (datum=? (proj "+nan.0") (proj "+nan.0"))))
 (test-assert (datum=? (proj "1/2") (proj "1/2")))
 (test-assert (not (datum=? (proj "1/2") (proj "0.5"))))
 (test-assert (datum=? (proj "#xff") (proj "255")))
-
-(test-end)
-
-;;; Differential oracle: the host reader
-;;
-;; A test oracle only. No shipped library calls the host reader, and
-;; tests/test-datum.sps is the only place this import appears.
-;;
-;; Coverage is bounded by what the oracle accepts. Chez's read rejects datum
-;; labels (#0= and #0#) and R7RS bytevectors (#u8), so those -- including the
-;; most intricate part of the projection, label resolution -- are covered by
-;; the written expectations above and NOT by this group. A passing run here is
-;; not full coverage.
-
-(test-begin "differential-oracle")
-
-(letrec ((file-contents
-          (lambda (path)
-            (let ((p (open-input-file path)))
-              (let lp ((acc '()))
-                (let ((c (get-char p)))
-                  (if (eof-object? c)
-                      (begin (close-port p) (list->string (reverse acc)))
-                      (lp (cons c acc))))))))
-         (host-read-all
-          (lambda (path)
-            (let ((p (open-input-file path)))
-              (let lp ((acc '()))
-                (let ((d (read p)))
-                  (if (eof-object? d)
-                      (begin (close-port p) (reverse acc))
-                      (lp (cons d acc)))))))))
-  (for-each
-   (lambda (path)
-     (test-equal (host-read-all path) (proj (file-contents path))))
-   '("src/pitch/reader.sls"
-     "src/pitch/cst.sls"
-     "src/pitch/parse.sls"
-     "src/pitch/datum.sls"
-     "src/pitch/check.sls"
-     "src/pitch/diagnostic.sls"
-     "vendor/laesare/reader.sls"
-     "vendor/laesare/writer.sls"
-     "tests/runner.sls")))
-
-;; Targeted constructs the oracle does accept.
-(letrec ((host (lambda (s) (read (open-string-input-port s)))))
-  (for-each
-   (lambda (source) (test-equal (host source) (proj1 source)))
-   '("'x" "`x" ",x" ",@x"
-     "(a . b)" "(a b . c)" "(a (b (c)))" "()"
-     "#(1 2 3)" "#vu8(1 2 3)"
-     "#xff" "1E10" "1/2" "-0.0"
-     "\"\\x41;\"" "#\\nul" "#\\space" "|foo bar|"
-     "#t" "#f" "#true"
-     "(define (f x) (if (null? x) '() (cons 1 x)))")))
 
 (test-end)
 

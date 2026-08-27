@@ -4,7 +4,7 @@
 
 ;; The differential oracle's corpus.
 ;;
-;; ONE file drives BOTH implementations: tests/oracle/oracle.sps builds these
+;; ONE file drives BOTH implementations: tests/oracle/oracle-emit.scm builds these
 ;; documents with (pitch doc) and tests/oracle/oracle.rkt builds them with
 ;; Racket's pretty-expressive. `make oracle-layout` renders each entry with both
 ;; and diffs the results. Two hand-written parallel test programs would drift --
@@ -33,9 +33,9 @@
 ;;   - a newline as the DIRECT child of align, nest or reset -- (align nl),
 ;;     (nest 2 hard-nl), (group (align hard-nl)) and the like. The reference's
 ;;     `flatten` leaves such a newline unflattened, which pitch treats as a bug
-;;     and fixes; see the DIVERGENCE note in src/pitch/doc.sls. The two
+;;     and fixes; see the DIVERGENCE note in src/pitch/doc.sld. The two
 ;;     implementations disagree there by intent, so comparing them would report
-;;     a difference we chose. tests/test-doc.sps asserts the fixed behaviour
+;;     a difference we chose. tests/test-doc-r7rs.scm asserts the fixed behaviour
 ;;     directly instead.
 ;;
 ;; Newlines nested any deeper under those wrappers are fine and are exercised
@@ -204,7 +204,7 @@
  ;;; The paper's worked examples, from the reference's tests/examples.rkt
  ;;
  ;; Three encodings of one layout problem, at the two page widths where their
- ;; answers differ. tests/test-layout.sps pins the expected text directly; here
+ ;; answers differ. tests/test-layout-r7rs.scm pins the expected text directly; here
  ;; they also compare cost. Written out rather than shared, since the corpus
  ;; language has no way to bind a name and sharing changes no answer.
 

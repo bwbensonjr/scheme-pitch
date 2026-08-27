@@ -4,6 +4,27 @@ Decisions and open questions that the README states without justifying. This is
 the pre-specification record; OpenSpec proposals should draw from it and, where
 they settle an open question, amend it.
 
+## Emit application boundary
+
+The maintained Pitch application is R7RS-small. Its libraries are
+`define-library` units listed in `emit-libs.scm`, and `src/pitch/main.scm` is the
+single program entry used by both `emit run` and `emit build pitch`. Existing
+R6RS library consumers must migrate to the command or to the R7RS libraries;
+there is no maintained R6RS application or compatibility layer.
+
+Emit-specific behavior is confined to the real-host edge. The program imports
+the prerequisite `(emit filesystem)` library for directory listing,
+directory/symlink classification, and atomic replacement, then supplies those
+operations to the host-independent `(pitch cli)` interface. The CST, formatter,
+layout engine, and CLI policy do not branch on the compiler.
+
+Chez remains only at explicit independent reader and serialized-datum oracle
+boundaries. Racket remains only the layout oracle. Neither is a build-time or
+runtime dependency of the standalone application. Valid numeric lexemes outside
+Emit's numeric tower are carried by private opaque values: they remain numeric
+tokens and lossless source, but are not exposed as host numbers or accepted as
+configuration integers or bytevector octets.
+
 ## 1. Safety checks
 
 ### Why not datum equivalence alone
@@ -53,18 +74,16 @@ it reparses the string it printed.
 
 ### Host readers
 
-Do not depend on an implementation's `read` at runtime — the guarantee
-would then vary by platform, since Chez accepts constructs Chibi
-rejects and vice versa. Host readers are excellent *test* oracles: CI
-asserts that `cst->datum(read-cst(f))` is `equal?` to what Chez,
-Chibi, and Gauche each produce from `(read f)` over the corpus. Three
-independent implementations agreeing is strong evidence the reader is
-right, and it validates the reader without shipping a dependency on
-it.
+Do not depend on an implementation's `read` at runtime — the guarantee would
+then vary by platform. Host readers are excellent *test* oracles. The current
+oracle serializes real source text, independently projects it through Emit
+Pitch and reads it through Chez, then compares the two serialized results. This
+validates the projection without shipping a host-reader dependency or comparing
+an in-memory tree with itself.
 
-**Status.** Chez is wired up and every in-repo source file matches its `read`
-datum for datum. Chibi and Gauche are not installed; the multi-implementation
-matrix belongs to the CI and corpus work in §7.
+**Status.** `make oracle-datum` wires up Chez as that explicit external oracle.
+The complete application and its primary Emit suites do not import or invoke a
+host reader.
 
 The bound worth remembering: **an oracle covers only what it accepts.** Chez's
 `read` rejects datum labels and `#u8(`, so label resolution — the most intricate
@@ -135,11 +154,11 @@ The datum comparator must terminate on cyclic structure. `#0=(a . #0#)` is legal
 input.
 
 **Settled: `cst->datum` produces host Scheme data, so the comparator is
-`equal?`.** R6RS requires `equal?` to terminate on circular arguments, so
-choosing host data moves the obligation from us onto the implementation. This
-was measured on Chez 10.4.1 before committing to it: two structurally identical
-cyclic lists compare `#t`, two cyclic lists differing in one element compare
-`#f`, and two identical cyclic vectors compare `#t` — all terminating.
+`equal?`.** The supported Emit revision provides cycle-safe `equal?`: two
+structurally identical cyclic lists compare `#t`, two cyclic lists differing in
+one element compare `#f`, and two identical cyclic vectors compare `#t` — all
+terminating. Choosing host data therefore moves the cycle obligation onto a
+prerequisite the build probes directly.
 
 The earlier concern here — that a hand-written comparator over our own
 representation will not terminate unless written to — is real but conditional on
@@ -152,10 +171,13 @@ trusts is worse than no check.
 `datum=?` exists as a named wrapper over `equal?` so a future divergence has
 somewhere to live. Nothing motivates one today.
 
-Numbers compare by `eqv?`, so exactness is significant: `1` and `1.0` are not
-equivalent, which is wanted. `0.0` and `-0.0` are also distinguished on Chez,
-and `+nan.0` equals itself. These are recorded by test rather than reasoned
-about; layer 2 needs only that both sides of a comparison are treated alike.
+For numbers Emit can represent, exactness is significant: `1` and `1.0` are not
+equivalent, while `0.0` and `-0.0` compare equal and `+nan.0` does not compare
+equal to itself. These behaviors are recorded by tests rather than inferred.
+Valid numbers Emit cannot represent project to private opaque values. Fresh
+reads of the same lexeme compare equal, while alternate opaque spellings may
+compare unequal; layer 1 rejects every spelling change before layer 2 can
+authorize output.
 
 ### Layer 2 finds what structure cannot show
 
@@ -196,12 +218,12 @@ translates, lays out, and then runs `check-output` over the input text and the
 text it just produced. Round-trip compares a tree against the input it was parsed
 from rather than two texts, and idempotence needs the formatter run twice, so
 neither shares the runner's signature; both belong to the thing that has a
-formatter to run. Layer 3 is asserted in `tests/test-format.sps` over
+formatter to run. Layer 3 is asserted in `tests/test-format-r7rs.scm` over
 hand-written cases at four widths and over every one of pitch's own source files.
 
 **The wiring is done, and it is not vacuous.** The check is handed the string
 `layout` returned, and `(pitch format)` has no way to hand it anything else,
-because `check-output` does not accept a tree. `tests/test-format.sps` takes the
+because `check-output` does not accept a tree. `tests/test-format-r7rs.scm` takes the
 pipeline's own real output and shows that the same check fails on a mutation of
 it — a deleted comment, a flipped bracket, an expanded abbreviation, a respelled
 numeric lexeme. A check nobody has seen fail is one nobody should trust.
@@ -363,7 +385,7 @@ required; tolerant *output* is not.
 `(pitch cli)` discharges this, and its refusal path is the same one for all three
 statuses — an unclean parse, an unsupported line ending, a failed check — because
 `format-source` returns no text under any of them and the driver branches on
-success in exactly one place. `tests/test-cli.sps` asserts it as a negative: after
+success in exactly one place. `tests/test-cli-r7rs.scm` asserts it as a negative: after
 a refusal the write log is empty and the file's contents are byte-identical.
 
 Diagnostics take their position from the token they concern, never from the
@@ -626,7 +648,7 @@ and roughly 60% of `raco fmt`'s 183 are Racket-specific. But the R7RS-small core
 is finite — about 35 syntactic keywords — so this is an afternoon, not a long
 tail. The long tail is per-dialect library macros.
 
-**Shipped**, in `src/pitch/style.sls`, split into a shared core and the two
+**Shipped**, in `src/pitch/style.sld`, split into a shared core and the two
 dialect tables:
 
 ```scheme
@@ -865,8 +887,9 @@ line-ending rule rather than defined a second time.
 `make oracle-layout` renders a corpus through both `(pitch layout)` and Racket's
 `pretty-expressive` and requires the text, the cost and the taint flag to agree.
 One file, `tests/oracle/documents.scm`, drives both sides, so a case cannot be
-added to one and forgotten on the other. It is not part of `make test`, which
-runs on Chez alone; a missing Racket is reported and skipped.
+added to one and forgotten on the other. It is not part of `make test`, whose
+application matrix runs through Emit and whose retained Chez use is limited to
+reader/datum oracles; a missing Racket is reported and skipped.
 
 The corpus reader refuses a file containing anything after its single list. That
 guard is not hypothetical: a stray paren once truncated the corpus, *both*
@@ -883,10 +906,10 @@ uses constantly, "flat if it fits, else break and align under the head" — can
 emit a line break from its *flat* alternative. For a formatter whose entire
 promise is that it changes only whitespace, a break nobody authorized is not
 cosmetic. Fixed here; the shape is excluded from the oracle corpus, with the
-fixed behavior asserted directly in `tests/test-doc.sps` instead.
+fixed behavior asserted directly in `tests/test-doc-r7rs.scm` instead.
 
 Two smaller divergences are answer-preserving and recorded in the header of
-`src/pitch/layout.sls`: memo tables are external and per-call rather than stored
+`src/pitch/layout.sld`: memo tables are external and per-call rather than stored
 on document nodes and cleared afterwards, and every internal node is memoized
 rather than every seventh. The first is what makes a measure computed under one
 cost factory unable to leak into a layout under another.
@@ -915,7 +938,7 @@ tokens — but this is the single most dangerous printer bug in any Lisp
 formatter, and it deserves an assertion where it happens rather than a diagnosis
 three layers downstream.
 
-**Status.** Layer 1 is shipped, and `tests/test-check.sps` pins this case: `(a ;
+**Status.** Layer 1 is shipped, and `tests/test-check-r7rs.scm` pins this case: `(a ;
 c⏎ b)` printed as `(a ; c b)` is caught, because the comment token swallows `b)`
 and two tokens vanish from the sequence. That is a backstop, not a substitute.
 The assertion still belongs in the printer, where it can name the form being

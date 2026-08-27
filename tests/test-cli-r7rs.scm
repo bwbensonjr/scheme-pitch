@@ -1,4 +1,3 @@
-#!/usr/bin/env scheme-script
 ;; -*- mode: scheme; coding: utf-8 -*- !#
 ;; Copyright © 2026 Brent Benson
 ;; SPDX-License-Identifier: MIT
@@ -19,30 +18,37 @@
 ;;
 ;; WHAT IS NOT COVERED HERE. `format-source` cannot be made to return a
 ;; check-failed status from outside: it arises only from a printer bug, and
-;; tests/test-format.sps exercises the check machinery directly for that reason.
+;; tests/test-format-r7rs.scm exercises the check machinery directly for that reason.
 ;; The CLI branches on `(eq? status 'ok)` in exactly one place, so check-failed
 ;; takes the identical no-write path as the two refusals that are exercised
 ;; below; what is untested is only the wording of its message.
 
-#!r6rs
-
 (import
-  (rnrs (6))
+  (scheme base)
   (pitch cli)
-  (only (pitch format) format-source format-result-status)
+  (pitch format)
+  (pitch sequence)
   (tests config)
   (tests runner))
 
+(define-syntax let-values
+  (syntax-rules ()
+    ((_ (((name ...) producer)) body ...)
+     (call-with-values (lambda () producer) (lambda (name ...) body ...)))))
+
 ;;; The in-memory filesystem
 
-(define-record-type fs
-  (fields (mutable files)                ;alist of path -> contents
-          (mutable writes)               ;reverse list of paths written
-          (mutable renames)              ;reverse list of (from . to)
-          (mutable reads)                ;reverse list of host reads
-          dirs links unreadable unwritable)
-  (sealed #t) (opaque #f)
-  (nongenerative fs-v0-b1d7c4a2-8e35-4f90-a6c8-3d21e7fb5904))
+(define-record-type <fs>
+  (make-fs files writes renames reads dirs links unreadable unwritable)
+  fs?
+  (files fs-files fs-files-set!)         ;alist of path -> contents
+  (writes fs-writes fs-writes-set!)      ;reverse list of paths written
+  (renames fs-renames fs-renames-set!)   ;reverse list of (from . to)
+  (reads fs-reads fs-reads-set!)         ;reverse list of host reads
+  (dirs fs-dirs)
+  (links fs-links)
+  (unreadable fs-unreadable)
+  (unwritable fs-unwritable))
 
 (define default-path "/pitch/default-config.scm")
 
@@ -63,9 +69,9 @@
 
 (define (fs-lookup fs path)
   (cond ((has? path (fs-unreadable fs))
-         (assertion-violation 'read-file "permission denied" path))
+         (error 'read-file "permission denied" path))
         ((assoc path (fs-files fs)) => cdr)
-        (else (assertion-violation 'read-file "no such file" path))))
+        (else (error 'read-file "no such file" path))))
 
 (define (fs-read fs path)
   (fs-reads-set! fs (cons path (fs-reads fs)))
@@ -73,20 +79,20 @@
 
 (define (fs-write! fs path text)
   (when (has? path (fs-unwritable fs))
-    (assertion-violation 'write-file "permission denied" path))
+    (error 'write-file "permission denied" path))
   (fs-writes-set! fs (cons path (fs-writes fs)))
   (fs-files-set! fs (cons (cons path text)
-                          (remp (lambda (e) (string=? (car e) path))
-                                (fs-files fs)))))
+                          (filter (lambda (e) (not (string=? (car e) path)))
+                                  (fs-files fs)))))
 
 (define (fs-rename! fs from to)
   (let ((text (fs-lookup fs from)))
     (fs-renames-set! fs (cons (cons from to) (fs-renames fs)))
     (fs-files-set! fs (cons (cons to text)
-                            (remp (lambda (e)
-                                    (or (string=? (car e) from)
-                                        (string=? (car e) to)))
-                                  (fs-files fs))))))
+                            (filter (lambda (e)
+                                      (not (or (string=? (car e) from)
+                                               (string=? (car e) to))))
+                                    (fs-files fs))))))
 
 (define (parent-of path)
   (let loop ((i (- (string-length path) 1)))
@@ -122,14 +128,17 @@
 
 ;;; Running the driver
 
-(define-record-type run
-  (fields status out err fs)
-  (sealed #t) (opaque #f)
-  (nongenerative run-v0-4c9e2a71-6b83-4d15-9f27-8ae0c3b6d142))
+(define-record-type <run>
+  (make-run status out err fs)
+  run?
+  (status run-status)
+  (out run-out)
+  (err run-err)
+  (fs run-fs))
 
 (define (invoke args fs stdin-text)
-  (let-values (((out get-out) (open-string-output-port))
-               ((err get-err) (open-string-output-port)))
+  (let ((out (open-output-string))
+        (err (open-output-string)))
     (let* ((host (make-host
                    (lambda (p) (fs-read fs p))
                    (lambda (p t) (fs-write! fs p t))
@@ -138,11 +147,11 @@
                    (lambda (p) (has? p (fs-dirs fs)))
                    (lambda (p) (has? p (fs-links fs)))
                    (lambda (p) (fs-exists? fs p))
-                   (open-string-input-port stdin-text)
+                   (open-input-string stdin-text)
                    out
                    err))
            (status (run-cli args host default-path)))
-      (make-run status (get-out) (get-err) fs))))
+      (make-run status (get-output-string out) (get-output-string err) fs))))
 
 ;; The common case: some files, no directories, no failures, empty stdin.
 (define (run-files args files)

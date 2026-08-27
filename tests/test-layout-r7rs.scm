@@ -10,7 +10,7 @@
 ;; requiring the text, the cost and the taint flag to agree. Neither replaces
 ;; the other, and the oracle is deliberately blind to the two places pitch
 ;; departs from the reference on purpose -- those are asserted in
-;; tests/test-doc.sps.
+;; tests/test-doc-r7rs.scm.
 ;;
 ;; The worked examples below are the paper's own, transcribed from the
 ;; reference's tests/examples.rkt with its published expected output. They are

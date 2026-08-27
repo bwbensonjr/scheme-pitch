@@ -57,353 +57,346 @@
   doc-text-push doc-newline? doc-newline-s doc-concat? doc-concat-a doc-concat-b
   doc-alt? doc-alt-a doc-alt-b doc-nest? doc-nest-n doc-nest-d doc-align? doc-align-d
   doc-reset? doc-reset-d doc-full? doc-full-d doc-cost? doc-cost-n doc-cost-d doc-fail?)
-(import
-  (scheme base)
-  (scheme case-lambda)
-  (pitch lines)
-  (pitch sequence)
-  (pitch table))
+(import (scheme base) (scheme case-lambda) (pitch lines) (pitch sequence) (pitch table))
 (begin
 
-;;; Representation
+  ;;; Representation
 
-;; Every node carries two facts computed at construction:
-;;
-;;   fail-indexes  the fullness combinations under which this document
-;;                 statically has no layout. The index is
-;;              (beg-full? -> 1) + (end-full? -> 2).
-;;   nl-cnt     an overapproximation of how many line breaks the document can
-;;              contain. Used only to choose between two tainted candidates,
-;;              where more breaks is the better guess.
-(define-record-type <doc>
-  (make-doc kind fail-indexes nl-cnt a b)
-  doc?
-  (kind doc-kind)
-  (fail-indexes doc-fail-indexes)
-  (nl-cnt doc-nl-cnt)
-  (a doc-a)
-  (b doc-b))
+  ;; Every node carries two facts computed at construction:
+  ;;
+  ;;   fail-indexes  the fullness combinations under which this document
+  ;;                 statically has no layout. The index is
+  ;;              (beg-full? -> 1) + (end-full? -> 2).
+  ;;   nl-cnt     an overapproximation of how many line breaks the document can
+  ;;              contain. Used only to choose between two tainted candidates,
+  ;;              where more breaks is the better guess.
+  (define-record-type <doc> (make-doc kind fail-indexes nl-cnt a b) doc?
+    (kind doc-kind)
+    (fail-indexes doc-fail-indexes)
+    (nl-cnt doc-nl-cnt)
+    (a doc-a)
+    (b doc-b))
 
-(define fail-none '())
-(define fail-all '(0 1 2 3))
-;; text of positive length: nn no, yn yes, ny yes, yy yes.
-(define fail-text-nonempty '(1 2 3))
-;; empty text: fails at exactly one constrained boundary, not at both.
-(define fail-text-empty '(1 2))
-;; newline: never satisfies a constraint after it.
-(define fail-newline '(2 3))
-;; full: fails unless the boundary after it is constrained.
-(define fail-full '(0 1))
+  (define fail-none '())
+  (define fail-all '(0 1 2 3))
+  ;; text of positive length: nn no, yn yes, ny yes, yy yes.
+  (define fail-text-nonempty '(1 2 3))
+  ;; empty text: fails at exactly one constrained boundary, not at both.
+  (define fail-text-empty '(1 2))
+  ;; newline: never satisfies a constraint after it.
+  (define fail-newline '(2 3))
+  ;; full: fails unless the boundary after it is constrained.
+  (define fail-full '(0 1))
 
-(define (fullness-index beg-full? end-full?) (+ (if beg-full? 1 0) (if end-full? 2 0)))
+  (define (fullness-index beg-full? end-full?)
+    (+ (if beg-full? 1 0) (if end-full? 2 0)))
 
-(define (doc-fails-statically? d index)
-  (if (memv index (doc-fail-indexes d)) #t #f))
+  (define (doc-fails-statically? d index) (if (memv index (doc-fail-indexes d)) #t #f))
 
-(define (make-doc-text fail-indexes nl-cnt s len)
-  (make-doc 'text fail-indexes nl-cnt s len))
-(define (doc-text? d) (and (doc? d) (eq? (doc-kind d) 'text)))
-(define doc-text-s doc-a)
-(define doc-text-len doc-b)
+  (define (make-doc-text fail-indexes nl-cnt s len)
+    (make-doc 'text fail-indexes nl-cnt s len))
+  (define (doc-text? d) (and (doc? d) (eq? (doc-kind d) 'text)))
+  (define doc-text-s doc-a)
+  (define doc-text-len doc-b)
 
-;; Push a text's pieces onto a reversed accumulator of strings.
-(define (doc-text-push d acc)
-  (let walk ((s (doc-text-s d)) (acc acc))
-    (if (string? s) (cons s acc) (walk (cdr s) (walk (car s) acc)))))
+  ;; Push a text's pieces onto a reversed accumulator of strings.
+  (define (doc-text-push d acc)
+    (let walk ((s (doc-text-s d)) (acc acc))
+      (if (string? s) (cons s acc) (walk (cdr s) (walk (car s) acc)))))
 
-;; s is the string this break becomes when flattened, or #f if it cannot be
-;; flattened at all.
-(define (make-doc-newline fail-indexes nl-cnt s)
-  (make-doc 'newline fail-indexes nl-cnt s #f))
-(define (doc-newline? d) (and (doc? d) (eq? (doc-kind d) 'newline)))
-(define doc-newline-s doc-a)
+  ;; s is the string this break becomes when flattened, or #f if it cannot be
+  ;; flattened at all.
+  (define (make-doc-newline fail-indexes nl-cnt s)
+    (make-doc 'newline fail-indexes nl-cnt s #f))
+  (define (doc-newline? d) (and (doc? d) (eq? (doc-kind d) 'newline)))
+  (define doc-newline-s doc-a)
 
-(define (make-doc-concat fail-indexes nl-cnt a b)
-  (make-doc 'concat fail-indexes nl-cnt a b))
-(define (doc-concat? d) (and (doc? d) (eq? (doc-kind d) 'concat)))
-(define doc-concat-a doc-a)
-(define doc-concat-b doc-b)
+  (define (make-doc-concat fail-indexes nl-cnt a b)
+    (make-doc 'concat fail-indexes nl-cnt a b))
+  (define (doc-concat? d) (and (doc? d) (eq? (doc-kind d) 'concat)))
+  (define doc-concat-a doc-a)
+  (define doc-concat-b doc-b)
 
-(define (make-doc-alt fail-indexes nl-cnt a b)
-  (make-doc 'alt fail-indexes nl-cnt a b))
-(define (doc-alt? d) (and (doc? d) (eq? (doc-kind d) 'alt)))
-(define doc-alt-a doc-a)
-(define doc-alt-b doc-b)
+  (define (make-doc-alt fail-indexes nl-cnt a b)
+    (make-doc 'alt fail-indexes nl-cnt a b))
+  (define (doc-alt? d) (and (doc? d) (eq? (doc-kind d) 'alt)))
+  (define doc-alt-a doc-a)
+  (define doc-alt-b doc-b)
 
-(define (make-doc-nest fail-indexes nl-cnt n d)
-  (make-doc 'nest fail-indexes nl-cnt n d))
-(define (doc-nest? d) (and (doc? d) (eq? (doc-kind d) 'nest)))
-(define doc-nest-n doc-a)
-(define doc-nest-d doc-b)
+  (define (make-doc-nest fail-indexes nl-cnt n d)
+    (make-doc 'nest fail-indexes nl-cnt n d))
+  (define (doc-nest? d) (and (doc? d) (eq? (doc-kind d) 'nest)))
+  (define doc-nest-n doc-a)
+  (define doc-nest-d doc-b)
 
-(define (make-doc-align fail-indexes nl-cnt d)
-  (make-doc 'align fail-indexes nl-cnt d #f))
-(define (doc-align? d) (and (doc? d) (eq? (doc-kind d) 'align)))
-(define doc-align-d doc-a)
+  (define (make-doc-align fail-indexes nl-cnt d)
+    (make-doc 'align fail-indexes nl-cnt d #f))
+  (define (doc-align? d) (and (doc? d) (eq? (doc-kind d) 'align)))
+  (define doc-align-d doc-a)
 
-(define (make-doc-reset fail-indexes nl-cnt d)
-  (make-doc 'reset fail-indexes nl-cnt d #f))
-(define (doc-reset? d) (and (doc? d) (eq? (doc-kind d) 'reset)))
-(define doc-reset-d doc-a)
+  (define (make-doc-reset fail-indexes nl-cnt d)
+    (make-doc 'reset fail-indexes nl-cnt d #f))
+  (define (doc-reset? d) (and (doc? d) (eq? (doc-kind d) 'reset)))
+  (define doc-reset-d doc-a)
 
-(define (make-doc-full fail-indexes nl-cnt d)
-  (make-doc 'full fail-indexes nl-cnt d #f))
-(define (doc-full? d) (and (doc? d) (eq? (doc-kind d) 'full)))
-(define doc-full-d doc-a)
+  (define (make-doc-full fail-indexes nl-cnt d)
+    (make-doc 'full fail-indexes nl-cnt d #f))
+  (define (doc-full? d) (and (doc? d) (eq? (doc-kind d) 'full)))
+  (define doc-full-d doc-a)
 
-(define (make-doc-cost fail-indexes nl-cnt n d)
-  (make-doc 'cost fail-indexes nl-cnt n d))
-(define (doc-cost? d) (and (doc? d) (eq? (doc-kind d) 'cost)))
-(define doc-cost-n doc-a)
-(define doc-cost-d doc-b)
+  (define (make-doc-cost fail-indexes nl-cnt n d)
+    (make-doc 'cost fail-indexes nl-cnt n d))
+  (define (doc-cost? d) (and (doc? d) (eq? (doc-kind d) 'cost)))
+  (define doc-cost-n doc-a)
+  (define doc-cost-d doc-b)
 
-(define (make-doc-fail fail-indexes nl-cnt)
-  (make-doc 'fail fail-indexes nl-cnt #f #f))
-(define (doc-fail? d) (and (doc? d) (eq? (doc-kind d) 'fail)))
+  (define (make-doc-fail fail-indexes nl-cnt)
+    (make-doc 'fail fail-indexes nl-cnt #f #f))
+  (define (doc-fail? d) (and (doc? d) (eq? (doc-kind d) 'fail)))
 
-;;; text, and the line ending it refuses
+  ;;; text, and the line ending it refuses
 
-;; What counts as a line ending is (pitch lines)' business, shared with the
-;; token-equivalence check and the printer. Three copies of that set would be
-;; three things to keep in step, and the copy that drifts is always the one
-;; nothing else exercises.
+  ;; What counts as a line ending is (pitch lines)' business, shared with the
+  ;; token-equivalence check and the printer. Three copies of that set would be
+  ;; three things to keep in step, and the copy that drifts is always the one
+  ;; nothing else exercises.
 
-;; A line ending inside a text is refused, not split and not repaired.
-;;
-;; The arithmetic reason: a text contributes its length to the column, and the
-;; cost factory prices it against the page width from that column. A newline
-;; inside makes both silently wrong -- the layout is not merely ugly, it is
-;; mis-costed, and nothing downstream can tell.
-;;
-;; The reason that actually matters here: a line comment's token text *includes*
-;; the line ending that terminated it. So a printer that emits
-;; (text (token-text tok)) for a comment produces a document with a break hidden
-;; inside a text, and the result is the single most dangerous bug a Lisp
-;; formatter has -- a comment that swallows the code after it. Refusing the
-;; string forces the printer to split the terminator off and say explicitly what
-;; follows. That does not replace the assertion the printer still owes; it makes
-;; the mistake impossible to make by accident.
-;;
-;; A caller that legitimately holds a string containing an ending -- a string
-;; literal written across lines, a block comment spanning lines -- uses
-;; `verbatim` below, which is the sanctioned way to say "emit this exactly".
-(define (text s)
-  (let ((i (line-ending-index s)))
-    (when i
-      (error
-        "a document text may not contain a line ending; split it and emit an explicit break"
-        s
-        i)))
-  (make-text-node s (string-length s)))
+  ;; A line ending inside a text is refused, not split and not repaired.
+  ;;
+  ;; The arithmetic reason: a text contributes its length to the column, and the
+  ;; cost factory prices it against the page width from that column. A newline
+  ;; inside makes both silently wrong -- the layout is not merely ugly, it is
+  ;; mis-costed, and nothing downstream can tell.
+  ;;
+  ;; The reason that actually matters here: a line comment's token text *includes*
+  ;; the line ending that terminated it. So a printer that emits
+  ;; (text (token-text tok)) for a comment produces a document with a break hidden
+  ;; inside a text, and the result is the single most dangerous bug a Lisp
+  ;; formatter has -- a comment that swallows the code after it. Refusing the
+  ;; string forces the printer to split the terminator off and say explicitly what
+  ;; follows. That does not replace the assertion the printer still owes; it makes
+  ;; the mistake impossible to make by accident.
+  ;;
+  ;; A caller that legitimately holds a string containing an ending -- a string
+  ;; literal written across lines, a block comment spanning lines -- uses
+  ;; `verbatim` below, which is the sanctioned way to say "emit this exactly".
+  (define (text s)
+    (let ((i (line-ending-index s)))
+      (when i
+        (error
+          "a document text may not contain a line ending; split it and emit an explicit break"
+          s
+          i)))
+    (make-text-node s (string-length s)))
 
-(define (make-text-node s len)
-  (make-doc-text (if (= len 0) fail-text-empty fail-text-nonempty) 0 s len))
+  (define (make-text-node s len)
+    (make-doc-text (if (= len 0) fail-text-empty fail-text-nonempty) 0 s len))
 
-(define (newline s) (make-doc-newline fail-newline 1 s))
+  (define (newline s) (make-doc-newline fail-newline 1 s))
 
-(define fail (make-doc-fail fail-all -1))
+  (define fail (make-doc-fail fail-all -1))
 
-;;; Smart constructors
-;;
-;; Each of these partially evaluates at construction. Most are size reductions
-;; that leave the denoted layout set alone, but two are the semantics:
-;;
-;;   (concat (full d) (text s)) with s non-empty is `fail` -- that is what
-;;   `full` means, and
-;;
-;;   merging adjacent texts, together with the failure masks above, is what lets
-;;   the resolver assume a leaf never fails and skip the check on the hot path.
-;;
-;; A consequence: the constructors are not injective, so a caller cannot recover
-;; the shape it built. Nothing in this library's interface exposes structure to
-;; a caller, so that costs nothing here.
+  ;;; Smart constructors
+  ;;
+  ;; Each of these partially evaluates at construction. Most are size reductions
+  ;; that leave the denoted layout set alone, but two are the semantics:
+  ;;
+  ;;   (concat (full d) (text s)) with s non-empty is `fail` -- that is what
+  ;;   `full` means, and
+  ;;
+  ;;   merging adjacent texts, together with the failure masks above, is what lets
+  ;;   the resolver assume a leaf never fails and skip the check on the hot path.
+  ;;
+  ;; A consequence: the constructors are not injective, so a caller cannot recover
+  ;; the shape it built. Nothing in this library's interface exposes structure to
+  ;; a caller, so that costs nothing here.
 
-(define (concat a b)
-  (cond
-    ((and (doc-text? a) (= 0 (doc-text-len a))) b)
-    ((and (doc-text? b) (= 0 (doc-text-len b))) a)
-    ;; nothing may follow a document required to end its line
-    ((and (doc-full? a) (doc-text? b)) fail)
-    ((doc-fail? a) fail)
-    ((doc-fail? b) fail)
-    ((and (doc-text? a) (doc-text? b))
-      (make-text-node (cons (doc-text-s a) (doc-text-s b))
-                      (+ (doc-text-len a) (doc-text-len b))))
-    (else (make-doc-concat fail-none (+ (doc-nl-cnt a) (doc-nl-cnt b)) a b))))
+  (define (concat a b)
+    (cond
+      ((and (doc-text? a) (= 0 (doc-text-len a))) b)
+      ((and (doc-text? b) (= 0 (doc-text-len b))) a)
+      ;; nothing may follow a document required to end its line
+      ((and (doc-full? a) (doc-text? b)) fail)
+      ((doc-fail? a) fail)
+      ((doc-fail? b) fail)
+      ((and (doc-text? a) (doc-text? b))
+        (make-text-node (cons (doc-text-s a) (doc-text-s b))
+                        (+ (doc-text-len a) (doc-text-len b))))
+      (else (make-doc-concat fail-none (+ (doc-nl-cnt a) (doc-nl-cnt b)) a b))))
 
-(define (alternatives a b)
-  (cond
-    ((doc-fail? a) b)
-    ((doc-fail? b) a)
-    ((eq? a b) a)
-    (else (make-doc-alt fail-none (max (doc-nl-cnt a) (doc-nl-cnt b)) a b))))
+  (define (alternatives a b)
+    (cond
+      ((doc-fail? a) b)
+      ((doc-fail? b) a)
+      ((eq? a b) a)
+      (else (make-doc-alt fail-none (max (doc-nl-cnt a) (doc-nl-cnt b)) a b))))
 
-;; Indentation is unobservable on a text, and on a document whose own
-;; indentation is already fixed by an inner align or reset.
-(define (indentation-inert? d)
-  (or (doc-fail? d) (doc-align? d) (doc-reset? d) (doc-text? d)))
+  ;; Indentation is unobservable on a text, and on a document whose own
+  ;; indentation is already fixed by an inner align or reset.
+  (define (indentation-inert? d)
+    (or (doc-fail? d) (doc-align? d) (doc-reset? d) (doc-text? d)))
 
-(define (nest n d)
-  (cond
-    ((indentation-inert? d) d)
-    ((doc-nest? d) (nest (+ n (doc-nest-n d)) (doc-nest-d d)))
-    (else (make-doc-nest fail-none (doc-nl-cnt d) n d))))
+  (define (nest n d)
+    (cond
+      ((indentation-inert? d) d)
+      ((doc-nest? d) (nest (+ n (doc-nest-n d)) (doc-nest-d d)))
+      (else (make-doc-nest fail-none (doc-nl-cnt d) n d))))
 
-(define (align d)
-  (if (indentation-inert? d) d (make-doc-align fail-none (doc-nl-cnt d) d)))
+  (define (align d)
+    (if (indentation-inert? d) d (make-doc-align fail-none (doc-nl-cnt d) d)))
 
-(define (reset d)
-  (if (indentation-inert? d) d (make-doc-reset fail-none (doc-nl-cnt d) d)))
+  (define (reset d)
+    (if (indentation-inert? d) d (make-doc-reset fail-none (doc-nl-cnt d) d)))
 
-(define (full d)
-  (cond
-    ((doc-full? d) d)
-    ((doc-fail? d) fail)
-    (else (make-doc-full fail-full (doc-nl-cnt d) d))))
+  (define (full d)
+    (cond
+      ((doc-full? d) d)
+      ((doc-fail? d) fail)
+      (else (make-doc-full fail-full (doc-nl-cnt d) d))))
 
-(define (cost n d) (if (doc-fail? d) fail (make-doc-cost fail-none (doc-nl-cnt d) n d)))
+  (define (cost n d)
+    (if (doc-fail? d) fail (make-doc-cost fail-none (doc-nl-cnt d) n d)))
 
-;;; Derived combinators
+  ;;; Derived combinators
 
-(define empty-doc (text ""))
+  (define empty-doc (text ""))
 
-(define nl (newline " "))
-(define break (newline ""))
-(define hard-nl (newline #f))
+  (define nl (newline " "))
+  (define break (newline ""))
+  (define hard-nl (newline #f))
 
-(define space (text " "))
-(define lparen (text "("))
-(define rparen (text ")"))
-(define lbracket (text "["))
-(define rbracket (text "]"))
+  (define space (text " "))
+  (define lparen (text "("))
+  (define rparen (text ")"))
+  (define lbracket (text "["))
+  (define rbracket (text "]"))
 
-(define (alt . xs) (fold-right alternatives fail xs))
+  (define (alt . xs) (fold-right alternatives fail xs))
 
-;; Rebuild d with f applied to each of its immediate sub-documents, returning d
-;; itself when nothing changed so that sharing survives.
-(define (doc-map-children f d)
-  (cond
-    ((doc-concat? d)
-      (let ((a (f (doc-concat-a d))) (b (f (doc-concat-b d))))
-        (if (and (eq? a (doc-concat-a d)) (eq? b (doc-concat-b d))) d (concat a b))))
-    ((doc-alt? d)
-      (let ((a (f (doc-alt-a d))) (b (f (doc-alt-b d))))
-        (if (and (eq? a (doc-alt-a d)) (eq? b (doc-alt-b d))) d (alternatives a b))))
-    ((doc-nest? d) (let ((x (f (doc-nest-d d))))
-                     (if (eq? x (doc-nest-d d)) d (nest (doc-nest-n d) x))))
-    ((doc-align? d) (let ((x (f (doc-align-d d))))
-                      (if (eq? x (doc-align-d d)) d (align x))))
-    ((doc-reset? d) (let ((x (f (doc-reset-d d))))
-                      (if (eq? x (doc-reset-d d)) d (reset x))))
-    ((doc-full? d) (let ((x (f (doc-full-d d))))
-                     (if (eq? x (doc-full-d d)) d (full x))))
-    ((doc-cost? d) (let ((x (f (doc-cost-d d))))
-                     (if (eq? x (doc-cost-d d)) d (cost (doc-cost-n d) x))))
-    (else d)))
+  ;; Rebuild d with f applied to each of its immediate sub-documents, returning d
+  ;; itself when nothing changed so that sharing survives.
+  (define (doc-map-children f d)
+    (cond
+      ((doc-concat? d)
+        (let ((a (f (doc-concat-a d))) (b (f (doc-concat-b d))))
+          (if (and (eq? a (doc-concat-a d)) (eq? b (doc-concat-b d))) d (concat a b))))
+      ((doc-alt? d)
+        (let ((a (f (doc-alt-a d))) (b (f (doc-alt-b d))))
+          (if (and (eq? a (doc-alt-a d)) (eq? b (doc-alt-b d))) d (alternatives a b))))
+      ((doc-nest? d) (let ((x (f (doc-nest-d d))))
+                       (if (eq? x (doc-nest-d d)) d (nest (doc-nest-n d) x))))
+      ((doc-align? d) (let ((x (f (doc-align-d d))))
+                        (if (eq? x (doc-align-d d)) d (align x))))
+      ((doc-reset? d) (let ((x (f (doc-reset-d d))))
+                        (if (eq? x (doc-reset-d d)) d (reset x))))
+      ((doc-full? d) (let ((x (f (doc-full-d d))))
+                       (if (eq? x (doc-full-d d)) d (full x))))
+      ((doc-cost? d) (let ((x (f (doc-cost-d d))))
+                       (if (eq? x (doc-cost-d d)) d (cost (doc-cost-n d) x))))
+      (else d)))
 
-;; Replace every newline by its flat string, failing where it has none.
-;; Indentation becomes unobservable once no break survives, so nest, align and
-;; reset are discarded on the way down.
-;;
-;; DIVERGENCE FROM THE REFERENCE. sorawee/pretty-expressive strips those three
-;; wrappers and then maps over the *child's* children rather than recurring on
-;; the child itself, so a newline that is the direct child of an align, nest or
-;; reset comes back unflattened. There, (flatten (align nl)) is a hard break
-;; instead of a space, and (flatten (align hard-nl)) is a hard break instead of
-;; a failure -- which means (group (align d)), the shape a Lisp printer uses
-;; constantly, can take its "flat" branch and still emit a line break. For a
-;; formatter that promises to change only whitespace, a break nobody asked for
-;; is not a cosmetic difference. Fixed here, and excluded from the differential
-;; oracle's corpus with a note, since the two implementations disagree by
-;; intent.
-;;
-;; The memo table makes this linear on a shared DAG. `group` shares its argument
-;; between both alternatives, so nested groups would otherwise be exponential.
-(define (flatten d)
-  (let ((seen (make-identity-table)))
-    (let loop ((d d))
-      (or (table-ref seen d #f)
-          (let ((result (cond
-                          ((doc-align? d) (loop (doc-align-d d)))
-                          ((doc-reset? d) (loop (doc-reset-d d)))
-                          ((doc-nest? d) (loop (doc-nest-d d)))
-                          ((doc-newline? d) (let ((s (doc-newline-s d)))
-                                              (if s (text s) fail)))
-                          (else (doc-map-children loop d)))))
-            (table-set! seen d result)
-            result)))))
+  ;; Replace every newline by its flat string, failing where it has none.
+  ;; Indentation becomes unobservable once no break survives, so nest, align and
+  ;; reset are discarded on the way down.
+  ;;
+  ;; DIVERGENCE FROM THE REFERENCE. sorawee/pretty-expressive strips those three
+  ;; wrappers and then maps over the *child's* children rather than recurring on
+  ;; the child itself, so a newline that is the direct child of an align, nest or
+  ;; reset comes back unflattened. There, (flatten (align nl)) is a hard break
+  ;; instead of a space, and (flatten (align hard-nl)) is a hard break instead of
+  ;; a failure -- which means (group (align d)), the shape a Lisp printer uses
+  ;; constantly, can take its "flat" branch and still emit a line break. For a
+  ;; formatter that promises to change only whitespace, a break nobody asked for
+  ;; is not a cosmetic difference. Fixed here, and excluded from the differential
+  ;; oracle's corpus with a note, since the two implementations disagree by
+  ;; intent.
+  ;;
+  ;; The memo table makes this linear on a shared DAG. `group` shares its argument
+  ;; between both alternatives, so nested groups would otherwise be exponential.
+  (define (flatten d)
+    (let ((seen (make-identity-table)))
+      (let loop ((d d))
+        (or (table-ref seen d #f)
+            (let ((result (cond
+                            ((doc-align? d) (loop (doc-align-d d)))
+                            ((doc-reset? d) (loop (doc-reset-d d)))
+                            ((doc-nest? d) (loop (doc-nest-d d)))
+                            ((doc-newline? d) (let ((s (doc-newline-s d)))
+                                                (if s (text s) fail)))
+                            (else (doc-map-children loop d)))))
+              (table-set! seen d result)
+              result)))))
 
-(define (group d) (alternatives d (flatten d)))
+  (define (group d) (alternatives d (flatten d)))
 
-;;; verbatim
-;;
-;; `text` refuses a line ending, which is right, but a caller may hold a string
-;; that legally contains one: in pitch's case a string literal written across
-;; lines, a #| |# block spanning lines, or a #; eliding a datum written across
-;; lines. `verbatim` is the sanctioned way to emit such a string exactly.
-;;
-;; It lives here rather than in the caller because it is the sanctioned answer
-;; to a restriction this library imposes: `text` refuses, and `verbatim` is what
-;; it refuses in favour of. It knows nothing about Scheme, so it costs this
-;; library none of its independence.
-;;
-;; The breaks are hard and the whole thing sits under `reset`, so the
-;; continuation lines get no indentation at all. That is not a stylistic choice:
-;; indenting inside a string literal changes the value the literal denotes, and
-;; indenting inside a comment rewrites the comment's contents, which pitch never
-;; does. Both callers want the same thing, so there is nothing to parameterize.
-;;
-;; What it does not preserve: the resolver renders every break as a linefeed, so
-;; a string whose interior endings are CR, CRLF, NEL, LS or PS comes back with
-;; linefeeds. A caller for whom that is observable has to refuse the input; this
-;; library has no way to say "break with *these* characters".
+  ;;; verbatim
+  ;;
+  ;; `text` refuses a line ending, which is right, but a caller may hold a string
+  ;; that legally contains one: in pitch's case a string literal written across
+  ;; lines, a #| |# block spanning lines, or a #; eliding a datum written across
+  ;; lines. `verbatim` is the sanctioned way to emit such a string exactly.
+  ;;
+  ;; It lives here rather than in the caller because it is the sanctioned answer
+  ;; to a restriction this library imposes: `text` refuses, and `verbatim` is what
+  ;; it refuses in favour of. It knows nothing about Scheme, so it costs this
+  ;; library none of its independence.
+  ;;
+  ;; The breaks are hard and the whole thing sits under `reset`, so the
+  ;; continuation lines get no indentation at all. That is not a stylistic choice:
+  ;; indenting inside a string literal changes the value the literal denotes, and
+  ;; indenting inside a comment rewrites the comment's contents, which pitch never
+  ;; does. Both callers want the same thing, so there is nothing to parameterize.
+  ;;
+  ;; What it does not preserve: the resolver renders every break as a linefeed, so
+  ;; a string whose interior endings are CR, CRLF, NEL, LS or PS comes back with
+  ;; linefeeds. A caller for whom that is observable has to refuse the input; this
+  ;; library has no way to say "break with *these* characters".
 
-;; The join is written out rather than delegated to v-concat, which is defined
-;; further down: a forward reference would work, but reading order should not
-;; depend on knowing that.
-(define (verbatim s)
-  (let ((pieces (line-ending-pieces s)))
-    (if (null? (cdr pieces))
-        (text s)
-        (reset (let loop ((d (text (car pieces))) (rest (cdr pieces)))
-                 (if (null? rest)
-                     d
-                     (loop (concat d (concat hard-nl (text (car rest))))
-                           (cdr rest))))))))
+  ;; The join is written out rather than delegated to v-concat, which is defined
+  ;; further down: a forward reference would work, but reading order should not
+  ;; depend on knowing that.
+  (define (verbatim s)
+    (let ((pieces (line-ending-pieces s)))
+      (if (null? (cdr pieces))
+          (text s)
+          (reset (let loop ((d (text (car pieces))) (rest (cdr pieces)))
+                   (if (null? rest)
+                       d
+                       (loop (concat d (concat hard-nl (text (car rest))))
+                             (cdr rest))))))))
 
-;;; The append families
-;;
-;; Five ways to join documents, each with a variadic -append and a list-taking
-;; -concat. The Racket originals' infix aliases (<>, <$>, <+>, <s>, <+s>) are
-;; not provided: they read as operators there and as line noise here, and the
-;; spelled-out name says which of the five it is.
+  ;;; The append families
+  ;;
+  ;; Five ways to join documents, each with a variadic -append and a list-taking
+  ;; -concat. The Racket originals' infix aliases (<>, <$>, <+>, <s>, <+s>) are
+  ;; not provided: they read as operators there and as line noise here, and the
+  ;; spelled-out name says which of the five it is.
 
-(define (fold-doc f xs) (if (null? xs) empty-doc (fold-left f (car xs) (cdr xs))))
+  (define (fold-doc f xs) (if (null? xs) empty-doc (fold-left f (car xs) (cdr xs))))
 
-(define (join-plain x y) (concat x y))
-(define (join-space x y) (concat x (concat space y)))
-(define (join-hard-nl x y) (concat x (concat hard-nl y)))
-(define (join-aligned x y) (concat x (align y)))
-(define (join-space-aligned x y) (concat x (concat space (align y))))
+  (define (join-plain x y) (concat x y))
+  (define (join-space x y) (concat x (concat space y)))
+  (define (join-hard-nl x y) (concat x (concat hard-nl y)))
+  (define (join-aligned x y) (concat x (align y)))
+  (define (join-space-aligned x y) (concat x (concat space (align y))))
 
-(define (u-concat xs) (fold-doc join-plain xs))
-(define (us-concat xs) (fold-doc join-space xs))
-(define (v-concat xs) (fold-doc join-hard-nl xs))
-(define (a-concat xs) (fold-doc join-aligned xs))
-(define (as-concat xs) (fold-doc join-space-aligned xs))
+  (define (u-concat xs) (fold-doc join-plain xs))
+  (define (us-concat xs) (fold-doc join-space xs))
+  (define (v-concat xs) (fold-doc join-hard-nl xs))
+  (define (a-concat xs) (fold-doc join-aligned xs))
+  (define (as-concat xs) (fold-doc join-space-aligned xs))
 
-(define u-append
-  (case-lambda (() empty-doc) ((x) x) ((x y) (join-plain x y)) (xs (u-concat xs))))
-(define us-append
-  (case-lambda (() empty-doc) ((x) x) ((x y) (join-space x y)) (xs (us-concat xs))))
-(define v-append
-  (case-lambda (() empty-doc) ((x) x) ((x y) (join-hard-nl x y)) (xs (v-concat xs))))
-(define a-append
-  (case-lambda (() empty-doc) ((x) x) ((x y) (join-aligned x y)) (xs (a-concat xs))))
-(define as-append
-  (case-lambda
-    (() empty-doc)
-    ((x) x)
-    ((x y) (join-space-aligned x y))
-    (xs (as-concat xs)))))
-)
+  (define u-append
+    (case-lambda (() empty-doc) ((x) x) ((x y) (join-plain x y)) (xs (u-concat xs))))
+  (define us-append
+    (case-lambda (() empty-doc) ((x) x) ((x y) (join-space x y)) (xs (us-concat xs))))
+  (define v-append
+    (case-lambda (() empty-doc) ((x) x) ((x y) (join-hard-nl x y)) (xs (v-concat xs))))
+  (define a-append
+    (case-lambda (() empty-doc) ((x) x) ((x y) (join-aligned x y)) (xs (a-concat xs))))
+  (define as-append
+    (case-lambda
+      (() empty-doc)
+      ((x) x)
+      ((x y) (join-space-aligned x y))
+      (xs (as-concat xs))))))

@@ -1,3 +1,4 @@
 *~
-# The wrapper embeds this checkout's absolute paths; `make bin/pitch` writes it.
+# Generated launchers, standalone programs, and test executables.
 bin/
+build/

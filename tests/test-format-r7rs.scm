@@ -298,8 +298,8 @@
 ;; Real input, which is the only kind that finds what hand-written cases do not.
 ;; Every file here is pitch's own source or its test suite. The vendored copies
 ;; under vendor/ are deliberately absent: they are pristine upstream, never
-;; formatted, and src/pitch/reader.sls is derived from the largest of them and
-;; carries the same syntax.
+;; formatted. Authoritative src/pitch/reader.sls and generated reader.sld are
+;; owned by the reader generator and upstream diff, so they are absent too.
 
 (test-begin "the flush library body changes whitespace and nothing else")
 
@@ -342,20 +342,24 @@
 (test-begin "the in-repo corpus formats and is idempotent")
 
 (define corpus
-  '("src/pitch/lines.sls"
-    "src/pitch/diagnostic.sls"
-    "src/pitch/cst.sls"
-    "src/pitch/parse.sls"
-    "src/pitch/datum.sls"
-    "src/pitch/check.sls"
-    "src/pitch/cost.sls"
-    "src/pitch/doc.sls"
-    "src/pitch/layout.sls"
-    "src/pitch/print.sls"
-    "src/pitch/style.sls"
-    "src/pitch/format.sls"
-    "src/pitch/reader.sls"
-    "tests/runner.sls"))
+  '("src/pitch/check.sld"
+    "src/pitch/cli.sld"
+    "src/pitch/config.sld"
+    "src/pitch/cost.sld"
+    "src/pitch/cst.sld"
+    "src/pitch/datum.sld"
+    "src/pitch/diagnostic.sld"
+    "src/pitch/doc.sld"
+    "src/pitch/error.sld"
+    "src/pitch/format.sld"
+    "src/pitch/layout.sld"
+    "src/pitch/lines.sld"
+    "src/pitch/parse.sld"
+    "src/pitch/print.sld"
+    "src/pitch/sequence.sld"
+    "src/pitch/style.sld"
+    "src/pitch/table.sld"
+    "src/pitch/main.scm"))
 
 (define (corpus-check path dialect)
   (display ";; corpus ")
@@ -375,25 +379,22 @@
           (test-equal 'ok (format-result-status result2))
           (test-equal once twice))))))
 
-;; Every file, under r6rs -- which is what these files actually are, and whose
-;; table is the core plus its own entries, so it exercises strictly more of the
-;; table on real input than the default would.
-(for-each (lambda (path) (corpus-check path 'r6rs)) corpus)
+;; Every maintained application source under its native R7RS dialect.
+(for-each (lambda (path) (corpus-check path 'r7rs)) corpus)
 
 ;; The dialect axis over a subset. Running the whole corpus three times would
 ;; roughly triple the slowest part of `make test` to show something the files
-;; themselves cannot: they are all R6RS, so the other two dialects differ only
-;; in which entries degrade, and a few files demonstrate that as well as
-;; fourteen. What must hold under every dialect is that the checks still pass
+;; themselves cannot: a few files demonstrate the style-table differences as
+;; well as the whole corpus. What must hold under every dialect is that the checks still pass
 ;; and the output is still a fixpoint, and that is what this asserts.
 (for-each
  (lambda (path)
    (for-each (lambda (dialect) (corpus-check path dialect))
              '(common r7rs)))
- '("src/pitch/lines.sls"
-   "src/pitch/diagnostic.sls"
-   "src/pitch/cost.sls"
-   "tests/runner.sls"))
+ '("src/pitch/lines.sld"
+   "src/pitch/diagnostic.sld"
+   "src/pitch/cost.sld"
+   "src/pitch/main.scm"))
 
 (test-end)
 
