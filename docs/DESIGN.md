@@ -277,6 +277,18 @@ form, region), and whether it exists at all in v1. SRFI 272's in-file
 `;; * pp-styles: sym := style` comment is the community precedent for magic
 comments and suggests a syntax.
 
+**A concrete case now wants it, in this repository.** `usage-lines` in
+`src/pitch/cli.sld` is a quoted list of strings, one per line of `--help`
+output, and the quoted fallback (§5) packs it: `"" "options:"` end up sharing a
+line, and the shape of the list stops mirroring the shape of what it prints.
+Grouping expressed by a blank line or a comment survives a reflow, because both
+force a break; grouping expressed by a bare line break does not, anywhere in
+pitch. ANSI CL's `pprint-fill` packs this identically, so it is the rule working
+as specified rather than a defect in it — which is exactly why the remedy is an
+escape hatch and not a special case in the layout. Until the hatch exists, this
+is the cost, and it is written down here so the next person to read that file
+knows it was seen rather than missed.
+
 ## 3. CST design
 
 ### Where trivia live
@@ -598,6 +610,38 @@ the terminal in that position is exactly what says it is not one. It is also why
 `ec*` is not a synonym for `body` even though both give each element a line:
 `body` looks its elements up and `ec*` refuses to.
 
+**A quoted datum is a third thing, and it changes the fallback rather than the
+lookup.** `'(car cdr cons ...)` is data, but not because a terminal said so —
+because the reader did. What follows from that is narrower than it first looks.
+Quoting does **not** suppress lookup: `'(define (f x) ...)` keeps `define`'s
+shape and `` `(let ((,v ,e)) ...) `` keeps `let`'s, because a quoted datum
+frequently *is* a form — a macro expansion under test, an example in a table —
+and laying it out as the thing it spells is what makes it readable. What quoting
+changes is what happens when no style applies: the fallback becomes the filled
+rendering rather than the generic shape, so a data table packs instead of
+staircasing off its second element. The property propagates through the whole
+quoted subtree, so a sublist of a quoted list packs too.
+
+That is ANSI Common Lisp's rule, arrived at the same way. `pprint-fill` is the
+standard default for a list with no dispatch entry, and SBCL prints a quoted
+`defun` as a `defun`. The alternatives were surveyed and rejected: `raco fmt`
+fills nothing anywhere and produces exactly the staircase this replaces, and
+zprint suppresses lookup through the quoted subtree but leaves the layout one
+element per line, which fixes the staircase without fixing the file growth.
+Suppressing *and* filling — the shape this looked like at first — is a
+combination nothing ships, and it would pack quoted code into a paragraph.
+
+The cost of taking CL's rule is worth naming: a data position becomes sensitive
+to the style table, so adding an entry for `foo` changes how `'(foo ...)`
+renders as data. CL has that property too and lives with it.
+
+Two gaps are recorded rather than closed. The written-out `(quote datum)`
+spelling is unaffected, because reaching it would need a branch on a head symbol
+and that is prohibited. And of the abbreviations only `'` establishes the
+property: a quasiquote holds expression positions at its unquotes, so
+"everything below defers evaluation" is not true of it, and a syntax template
+exists to spell code.
+
 **What the subform's own shape is.** `i` and `d` impose nothing. `f`, `l` and `h`
 name lists of names or literals and are *filled*. A clause terminal says the
 element is a list read as `(first . body)` whose first element takes the style
@@ -640,6 +684,13 @@ packs; a shape with no slots and a non-filling tail is a peer list and aligns
 every element, the first included, at the column after the opening delimiter. A
 peer list offers only flat and aligned — hanging exists to separate a head from
 its arguments, and there is no head to separate.
+
+A quoted position substitutes the filled rendering for the generic one wherever
+no style applies — both in `compound-shape`'s no-entry case and in its non-list
+case, since a vector under a quote has no head to look up either. Nothing else
+about the dispatch changes, and an improper list still degrades to the generic
+shape, because packing has no rendering for a dotted tail and inventing one is
+the repair pitch refuses everywhere.
 
 ### Starter table
 
@@ -841,6 +892,14 @@ The target is a `pretty-expressive` -style engine implementing Πe from
 OOPSLA 2023): strictly more expressive than prior printers in the
 literature, provably minimizes a user-supplied cost objective,
 correctness verified in Lean.
+
+Filling is a use the engine was measured on rather than one it is being
+stretched to cover. `fillSep` — "also known as fill, which performs word
+wrapping" — is one of the paper's own benchmark families, and Πe handles it in
+0.010 s and 0.190 s where Bernardy's printer fails outright. The paper says
+nothing about quoted data or a code/data distinction; its §8.2 on the Racket
+formatter notes only that each function application has three styles. So the
+algebra supplies the mechanism and the policy in §5 is pitch's own.
 
 The cost factory is where black's aesthetic preferences get encoded — penalize
 overflow, penalize height, reward dedented closing delimiters — rather than in

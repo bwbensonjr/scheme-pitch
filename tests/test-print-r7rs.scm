@@ -852,4 +852,165 @@
 
 (test-end)
 
+;;; Quoted data
+;;
+;; A quoted position changes the FALLBACK shape and nothing else: a compound
+;; under a `'` with no style entry packs instead of taking the generic shape,
+;; and one whose head does have an entry keeps that style. The second half is
+;; pinned as hard as the first, because an earlier design suppressed lookup
+;; inside a quote and would have repacked every quoted form here.
+
+(test-begin "a quoted datum falls back to filling")
+
+;; Issue #13. The head `car` has no entry -- the tables hold syntactic keywords
+;; -- so this fell to the generic shape, whose aligned rendering welds the
+;; second element to the first and staircases the rest off its column.
+;; "cdr cons" appears only if a line holds more than the opening pair.
+(test-assert
+  (let ((out (fmt "(define *prims* '(car cdr cons null? pair? eq? eqv? equal? not vector? list?))\n" 40)))
+    (and (> (line-count out) 1) (contains? out "cdr cons"))))
+
+;; A quoted list that fits is untouched at any width that accommodates it.
+(test-equal "'(a b c)" (fmt* "'(a b c)\n" 80))
+(test-equal "'(a b c)" (fmt* "'(a b c)\n" 12))
+
+;; A head that is itself a compound keys nothing, so this packs too.
+(test-assert
+  (let ((out (fmt "'((alpha 1) (beta 2) (gamma 3) (delta 4) (epsilon 5) (zeta 6))\n" 30)))
+    (and (> (line-count out) 1) (contains? out "(beta 2) (gamma 3)"))))
+
+;; No staircase: nothing begins at the second element's column.
+(test-assert
+  (let ((out (fmt "'((alpha 1) (beta 2) (gamma 3) (delta 4) (epsilon 5) (zeta 6))\n" 30)))
+    (not (contains? out "\n            "))))
+
+;; A vector has no head to look up, so a quoted one packs.
+(test-assert
+  (let ((out (fmt "'(#(10 20 30 40 50 60 70 80 90))\n" 20)))
+    (and (> (line-count out) 1) (contains? out "20 30"))))
+
+;; Packing has no rendering for an improper tail, so a dot degrades to the
+;; generic shape, where the dot is preserved.
+(test-equal (string-append "'(aaaa\n"
+                           "   bbbb\n"
+                           "   . cccc)")
+            (fmt* "'(aaaa bbbb . cccc)\n" 12))
+
+;; The property is carried by position. The same elements without the quote are
+;; a function call, and a function call still pairs its head with its first
+;; argument.
+(test-equal (string-append "(car cdr\n"
+                           "     cons\n"
+                           "     null?)")
+            (fmt* "(car cdr cons null?)\n" 12))
+
+(test-end)
+
+;;; Quoting does not suppress style lookup
+
+(test-begin "a quoted position does not suppress lookup")
+
+;; Every one of these is pinned as UNCHANGED. They are what an earlier design --
+;; deep suppression, as zprint does -- would have packed into a paragraph, and
+;; they are the reason the fallback-only rule was taken instead. ANSI CL styles
+;; quoted code the same way.
+(test-equal (string-append "'(define (f x)\n"
+                           "   (+ x 1)\n"
+                           "   (list x x))")
+            (fmt* "'(define (f x) (+ x 1) (list x x))\n" 25))
+
+(test-equal (string-append "'(let ((a 1) (b 2))\n"
+                           "   (body a)\n"
+                           "   (body b))")
+            (fmt* "'(let ((a 1) (b 2)) (body a) (body b))\n" 25))
+
+(test-equal (string-append "'(cond\n"
+                           "   (test-expr consequent)\n"
+                           "   (else other))")
+            (fmt* "'(cond (test-expr consequent) (else other))\n" 25))
+
+;; A styled head arbitrarily deep inside a quoted datum keeps its style.
+(test-assert
+  (let ((out (fmt "'((a (b (cond (c d) (else e)))))\n" 24)))
+    (contains? out "(cond\n")))
+
+(test-end)
+
+;;; Composition with the terminals
+
+(test-begin "quoted overrides expression and yields to a data terminal")
+
+;; The fallback survives into the body of a quoted styled form. `begin` keeps
+;; its style AND the unstyled list inside it packs rather than staircasing --
+;; the case a non-propagating rule would get wrong.
+(test-assert
+  (let ((out (fmt "'(begin (alpha one two three four five six))\n" 30)))
+    (and (contains? out "'(begin\n") (contains? out "one two"))))
+
+;; A terminal that names data is the more specific statement and wins, so a
+;; formals list inside a quote is still a list of names and is not looked up.
+(test-equal (string-append "'(lambda (let cond)\n"
+                           "   (bodyyy))")
+            (fmt* "'(lambda (let cond) (bodyyy))\n" 20))
+
+(test-equal (string-append "'(syntax-rules (let)\n"
+                           "   ((_ x) x)\n"
+                           "   ((_ y) y))")
+            (fmt* "'(syntax-rules (let) ((_ x) x) ((_ y) y))\n" 25))
+
+(test-end)
+
+;;; Only the quote abbreviation
+
+(test-begin "only the quote abbreviation establishes a quoted position")
+
+;; A quasiquote holds expression positions and a syntax template exists to spell
+;; code, so neither takes the fallback. Both are pinned as unchanged.
+(test-equal (string-append "`(alpha one\n"
+                           "        two\n"
+                           "        three)")
+            (fmt* "`(alpha one two three)\n" 16))
+
+(test-equal (string-append "#'(alpha one\n"
+                           "         two\n"
+                           "         three)")
+            (fmt* "#'(alpha one two three)\n" 16))
+
+;; Reaching the written-out list spelling would need a branch on a head symbol,
+;; which is prohibited, so it is unchanged and the gap is recorded rather than
+;; closed.
+(test-equal (string-append "(quote\n"
+                           "  (car cdr\n"
+                           "       cons))")
+            (fmt* "(quote (car cdr cons))\n" 16))
+
+(test-end)
+
+;;; Forced breaks inside a filled quoted list
+
+(test-begin "a forced break inside a quoted list does not move the packing")
+
+;; Grouping expressed by a comment survives, because a comment forces a break
+;; and never moves across a code token. This is what makes a hand-grouped table
+;; readable after a reformat.
+(test-assert
+  (let ((out (fmt "'(alpha beta ; first group\n  gamma delta)\n" 40)))
+    (and (contains? out "; first group\n")
+         (contains? out "alpha beta")
+         (contains? out "gamma delta"))))
+
+;; Grouping expressed by a blank line survives too, and the blank line is empty.
+(test-assert
+  (let ((out (fmt "'(alpha beta\n\n  gamma delta)\n" 40)))
+    (and (contains? out "\n\n") (contains? out "gamma delta"))))
+
+;; A comment before the closing delimiter still puts that delimiter on a line of
+;; its own, under the opening one -- `whole`'s align is entered before any
+;; content, so a forced break cannot move it.
+(test-equal (string-append "'(alpha beta ; trailing\n"
+                           "  )")
+            (fmt* "'(alpha beta ; trailing\n  )\n" 40))
+
+(test-end)
+
 (test-exit)

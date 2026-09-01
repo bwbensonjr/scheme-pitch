@@ -139,22 +139,17 @@
 
   (define usage-lines
     '("usage: pitch [options] <file|directory>..."
-       "       pitch [options] -            format standard input"
-       "       pitch --stdout               format standard input"
-       ""
-       "options:"
-       "  --stdout        write formatted text to standard output, rewriting nothing"
-       "  --check         write nothing; fail if any input would change"
-       "  --config PATH   overlay the shipped configuration"
-       "  --width N       override the configured page width"
-       "  --dialect D     override the configured dialect: common, r6rs, or r7rs"
-       "  --help          show this message"
-       "  --version       show the version"
-       ""
-       "exit status:"
-       "  0  every input succeeded; under --check, nothing would change"
-       "  1  an input was refused, or under --check would change"
-       "  2  a usage error, or a path that could not be read or written"))
+      "       pitch [options] -            format standard input"
+      "       pitch --stdout               format standard input" "" "options:"
+      "  --stdout        write formatted text to standard output, rewriting nothing"
+      "  --check         write nothing; fail if any input would change"
+      "  --config PATH   overlay the shipped configuration"
+      "  --width N       override the configured page width"
+      "  --dialect D     override the configured dialect: common, r6rs, or r7rs"
+      "  --help          show this message" "  --version       show the version" ""
+      "exit status:" "  0  every input succeeded; under --check, nothing would change"
+      "  1  an input was refused, or under --check would change"
+      "  2  a usage error, or a path that could not be read or written"))
 
   (define (emit-usage port)
     (for-each (lambda (line) (emit port line "\n")) usage-lines))

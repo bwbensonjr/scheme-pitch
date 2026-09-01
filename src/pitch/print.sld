@@ -231,25 +231,78 @@
   (define (node-doc node tbl)
     (cond
       ((leaf? node) (leaf-doc node))
-      ((compound? node) (compound-doc node tbl))
+      ((compound? node) (compound-doc node tbl #f))
       ((prefix? node) (prefix-doc node tbl))
       ((error-node? node) (error-doc node tbl))
       ((document? node) (document-doc node tbl))
       (else (error 'node-doc "Not a CST node" node))))
 
-  ;; What one subform is laid out as. The three element styles agree on everything
-  ;; that is not a compound, and they differ only in the compound's *own* shape:
-  ;; its children are laid out by the ordinary rules either way, so suppression is
-  ;; shallow.
+  ;;; The quoted property
+
+  ;; A quoted element style wraps another one. It says: lay the node out by the
+  ;; inner style, but where no style applies fall back to *filling* rather than to
+  ;; the generic shape, and pass the property on to every child.
+  ;;
+  ;; It is a wrapper rather than a fourth symbol so that the property travels in
+  ;; the slot an item already has. The alternative -- a boolean threaded through
+  ;; node-doc and every emitter -- would be a second channel for a fact the item
+  ;; already carries, and every emitter would have to remember to forward it.
+  ;; Because the wrapper is baked into each item before item-doc runs, none of the
+  ;; body emitters changes, and neither item-doc nor join-items does either.
+  (define-record-type <quoted-style> (make-quoted-style inner) quoted-style?
+    (inner quoted-style-inner))
+
+  ;; Quotedness overrides an expression terminal and yields to a data one.
+  ;;
+  ;; `expression` becomes quoted, so the fill fallback survives into the body of a
+  ;; styled form that is itself quoted -- '(begin (alpha one two ...)) styles
+  ;; begin AND packs the list inside it. `datum` does not, because a terminal
+  ;; naming data is the more specific statement: a literals list is a list of
+  ;; names whether or not someone quoted the form around it, and wrapping it would
+  ;; re-enable the very lookup that terminal exists to suppress. A nested style is
+  ;; wrapped so the property reaches through a clause into its body; the styles
+  ;; inside it are quotified in turn when that shape is assigned, where `datum`
+  ;; stops it again.
+  (define (quotify style quoted?)
+    (if (and quoted? (or (eq? style 'expression) (nested-style? style)))
+        (make-quoted-style style)
+        style))
+
+  ;; Every datum item of a quoted compound is quoted. Trivia keep their style:
+  ;; they are leaves, and every style agrees on a leaf.
+  (define (mark-quoted items quoted?)
+    (define (mark it)
+      (if (item-datum? it) (item-with-style it (quotify (item-style it) #t)) it))
+    (if quoted? (map mark items) items))
+
+  ;; What one subform is laid out as. The element styles agree on everything that
+  ;; is not a compound, and they differ only in the compound's *own* shape.
   ;;
   ;;   expression   the ordinary rules; a list here consults the table
   ;;   datum        no lookup, and no shape of its own
   ;;   (nested s)   no lookup, and its elements are styled by s
+  ;;   (quoted s)   lay out by s, but fall back to filling rather than to the
+  ;;                generic shape, and quote the children too
+  ;;
+  ;; SUPPRESSION IS SHALLOW; QUOTEDNESS IS NOT, and the difference is the point. A
+  ;; terminal-established data position is a claim about one argument of one form,
+  ;; so its children are ordinary again -- which is what keeps a `let` binding's
+  ;; *body* code. A quoted position is established by the reader and holds for the
+  ;; whole subtree, so it propagates. Making `datum` deep would break `let`;
+  ;; making `quoted` shallow would leave a sublist of a quoted list staircasing
+  ;; one level down.
   (define (styled-node-doc node style tbl)
     (cond
+      ((quoted-style? style)
+        (let ((inner (quoted-style-inner style)))
+          (cond
+            ((not (compound? node)) (node-doc node tbl))
+            ((nested-style? inner)
+              (headless-doc node (nested-style-shape inner) tbl #t))
+            (else (compound-doc node tbl #t)))))
       ((or (eq? style 'expression) (not (compound? node))) (node-doc node tbl))
-      ((nested-style? style) (headless-doc node (nested-style-shape style) tbl))
-      (else (headless-doc node #f tbl))))
+      ((nested-style? style) (headless-doc node (nested-style-shape style) tbl #f))
+      (else (headless-doc node #f tbl #f))))
 
   ;;; Sequencing
 
@@ -444,12 +497,25 @@
   ;; A bytevector is `fill` without reference to any table: its elements are
   ;; octets, so no per-form judgment applies and one octet per line is nobody's
   ;; intent. A vector is left generic, because its elements can be anything.
-  (define (compound-shape node tbl)
-    (cond
-      ((bytevector-node? node) 'fill)
-      ((not (list-node? node)) 'generic)
-      (else (let ((head (head-symbol node)))
-              (or (and head (style-table-ref tbl head)) 'generic)))))
+  ;;
+  ;; In a quoted position the FALLBACK is `fill` rather than `generic`, and that
+  ;; is the whole of what quoting changes here. The lookup is untouched: a quoted
+  ;; compound whose head has an entry gets that entry's shape, so quoted code goes
+  ;; on looking like code. Both fallbacks move together -- a vector under a quote
+  ;; has no head to look up and is data by the same argument as a list.
+  ;;
+  ;; The arity is optional so the seam keeps its two-argument contract for
+  ;; callers that have no quoted position to report.
+  (define compound-shape
+    (case-lambda
+      ((node tbl) (compound-shape node tbl #f))
+      ((node tbl quoted?) (let ((fallback (if quoted? 'fill 'generic)))
+                            (cond
+                              ((bytevector-node? node) 'fill)
+                              ((not (list-node? node)) fallback)
+                              (else (let ((head (head-symbol node)))
+                                      (or (and head (style-table-ref tbl head))
+                                          fallback))))))))
 
   ;; The head is the first datum child, and it keys the table by its token's
   ;; *value* -- the symbol the reader produced. `|cond|` is `cond`, and under
@@ -510,8 +576,8 @@
   ;; Give each item the style its position calls for. `head?` says whether the
   ;; first item is a keyword that takes no slot, which is true of a headed form
   ;; and false of a list being styled from a data position.
-  (define (assign-styles items shape head?)
-    (let ((tail-s (tail-style (styled-tail shape))))
+  (define (assign-styles items shape head? quoted?)
+    (let ((tail-s (quotify (tail-style (styled-tail shape)) quoted?)))
       (let loop ((in items) (slots (styled-slots shape)) (head? head?) (out '()))
         (cond
           ((null? in) (reverse out))
@@ -529,25 +595,34 @@
                       (else (loop (cdr in)
                                   (cdr slots)
                                   #f
-                                  (cons (item-with-style it (slot-style (car slots)))
+                                  (cons (item-with-style
+                                          it
+                                          (quotify (slot-style (car slots)) quoted?))
                                         out)))))))))))
 
   ;;; Compound nodes
 
-  (define (compound-doc node tbl)
-    (let ((shape (compound-shape node tbl))
+  (define (compound-doc node tbl quoted?)
+    (let ((shape (compound-shape node tbl quoted?))
           (items (children->items (compound-children node) blank-cap-inside)))
       (cond
-        ((eq? shape 'fill) (fill-body node items tbl))
-        ((eq? shape 'generic) (generic-body node items tbl))
+        ;; A dot binds a tail rather than joining a sequence of peers, and packing
+        ;; has no rendering for one, so an improper list degrades to the generic
+        ;; shape where the dot is preserved. Only a quoted position can reach this
+        ;; with a dot: a bytevector cannot hold one, which is why the test sits
+        ;; here rather than being retrofitted onto headless-doc.
+        ((eq? shape 'fill) (if (has-dot? node)
+                               (generic-body node (mark-quoted items quoted?) tbl)
+                               (fill-body node (mark-quoted items quoted?) tbl)))
+        ((eq? shape 'generic) (generic-body node (mark-quoted items quoted?) tbl))
         (else
           ;; A dot has no place in any slot, and a styled form is never improper in
           ;; practice, so the whole form degrades rather than the dot being
           ;; special-cased into the match.
           (let ((k (and (not (has-dot? node)) (styled-slot-count items shape))))
             (if k
-                (styled-body node (assign-styles items shape #t) shape k tbl)
-                (generic-body node items tbl)))))))
+                (styled-body node (assign-styles items shape #t quoted?) shape k tbl)
+                (generic-body node (mark-quoted items quoted?) tbl)))))))
 
   ;; A list in a data position: no lookup, and its elements styled by `shape` when
   ;; there is one. Which of three renderings it takes turns on whether its style
@@ -567,9 +642,10 @@
   ;; keyword, so its first element plays that part". True of a clause. False of a
   ;; binding list, where treating binding 1 as a head welds binding 2 to it and
   ;; staircases the rest off binding 2's column.
-  (define (headless-doc node shape tbl)
+  (define (headless-doc node shape tbl quoted?)
     (let* ((raw (children->items (compound-children node) blank-cap-inside))
-           (items (if shape (assign-styles raw shape #f) raw)))
+           (items
+             (if shape (assign-styles raw shape #f quoted?) (mark-quoted raw quoted?))))
       (cond
         ((or (bytevector-node? node)
              (and shape (null? (styled-slots shape)) (tail-fill? (styled-tail shape))))
@@ -732,16 +808,32 @@
   ;; trivia sit between the two they are sequenced normally, but joined with a
   ;; hard space rather than a soft newline: the only line break that may separate
   ;; a marker from its datum is one a comment forced.
+  ;; The `'` abbreviation, and only it, establishes a quoted position for its
+  ;; datum. The test is on the marker's token *value* -- the symbol the reader
+  ;; produced for the abbreviation -- which is the convention the head lookup
+  ;; already uses, and which tells `'` from `` ` `` (quasiquote), `#'` (syntax)
+  ;; and the rest without comparing text. A quasiquote holds expression positions
+  ;; at its unquotes, so "everything below defers evaluation" is not true of it,
+  ;; and a syntax template exists to spell code; neither takes the fallback.
+  (define (quote-marker? marker)
+    (and (leaf? marker)
+         (eq? (leaf-kind marker) 'abbrev)
+         (eq? (token-value (leaf-token marker)) 'quote)))
+
   (define (prefix-doc node tbl)
     (let* ((marker (prefix-marker node))
            (datum (prefix-datum node))
+           (datum-style
+             (if (quote-marker? marker) (make-quoted-style 'expression) 'expression))
            ;; Whitespace between the marker and its datum is discarded like any
            ;; other, so `'  x` binds as tightly as `'x`. The test is on the items,
            ;; not on the raw children: a child sequence holding nothing but
            ;; whitespace produces no items at all.
            (mid (children->items (prefix-children node) blank-cap-inside)))
       (if (null? mid)
-          (if datum (concat (leaf-doc marker) (node-doc datum tbl)) (leaf-doc marker))
+          (if datum
+              (concat (leaf-doc marker) (styled-node-doc datum datum-style tbl))
+              (leaf-doc marker))
           (let* ((head (make-item (list marker) 0 #f #f #f #t 'expression #f))
                  (items (if datum
                             (append (cons head mid)
@@ -751,7 +843,7 @@
                                                      #f
                                                      #f
                                                      #t
-                                                     'expression
+                                                     datum-style
                                                      #f)))
                             (cons head mid))))
             (join-items items space tbl)))))

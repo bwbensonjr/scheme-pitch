@@ -191,6 +191,13 @@ the rest. Anything the table does not describe — a head with no entry, wrong
 arity, a comment forcing a break where a style needs one line — falls back to the
 generic shape, which is why that shape had to exist and be correct first.
 
+**Under a `'`, the fallback is to fill instead.** A quoted datum is data, so a
+long symbol table packs to the width rather than going one element per line. This
+changes the fallback only: quoting does not suppress the lookup, so `'(define (f
+x) ...)` still takes `define`'s shape and quoted code goes on looking like code.
+The rule is ANSI Common Lisp's, where `pprint-fill` is likewise the default for a
+list with no entry.
+
 `if`, `and` and `or` have no entry on purpose: the generic shape is already what
 everyone writes for them.
 
