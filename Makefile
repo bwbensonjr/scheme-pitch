@@ -10,9 +10,6 @@ EMIT_MANIFEST ?=
 PITCH_ARGS ?=
 LIBDIRS := src:.
 
-ORACLE_OUT := $(shell mktemp -t pitch-layout)
-ORACLE_REF := $(shell mktemp -t pitch-layout-ref)
-
 PREFIX ?= /usr/local
 PITCH_LIBEXECDIR ?= $(PREFIX)/libexec/pitch
 
@@ -199,11 +196,13 @@ oracle-layout:
 	  echo "  raco pkg install pretty-expressive"; \
 	else \
 	  set -e; \
-	  EMIT_VERBOSITY=quiet $(EMIT) run tests/oracle/oracle-emit.scm > $(ORACLE_OUT); \
-	  $(RACKET) tests/oracle/oracle.rkt > $(ORACLE_REF); \
+	  oracle_dir=$$(mktemp -d); \
+	  trap 'rm -rf "$$oracle_dir"' EXIT; \
+	  EMIT_VERBOSITY=quiet $(EMIT) run tests/oracle/oracle-emit.scm > $$oracle_dir/out; \
+	  $(RACKET) tests/oracle/oracle.rkt > $$oracle_dir/ref; \
 	  set +e; \
-	  if diff -u $(ORACLE_REF) $(ORACLE_OUT); then \
-	    echo "oracle-layout: $$(head -1 $(ORACLE_OUT)), all agree"; \
+	  if diff -u $$oracle_dir/ref $$oracle_dir/out; then \
+	    echo "oracle-layout: $$(head -1 $$oracle_dir/out), all agree"; \
 	  else \
 	    echo "oracle-layout: FAILED (left: reference, right: pitch)"; exit 1; \
 	  fi; \
