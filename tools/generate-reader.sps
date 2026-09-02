@@ -214,10 +214,19 @@
            (pitch-let*-values (rest ...) body ...)))))
     (define (pitch-assert value)
       (if value #t (error "reader assertion failed")))
+    ;; The port is created here, never escapes, and its text has already been
+    ;; taken, so this owns it and closes it. That is ordinary hygiene, and on
+    ;; Emit it is also the difference between linear and quadratic: an
+    ;; output string port is a libc stream, allocating one walks libc's list of
+    ;; streams looking for a free slot, and a stream that is never closed is
+    ;; never a free slot. Leaving them open made every token the reader
+    ;; accumulates pay for every token before it.
     (define (call-with-string-output-port procedure)
       (let ((port (open-output-string)))
         (procedure port)
-        (get-output-string port)))))
+        (let ((text (get-output-string port)))
+          (close-port port)
+          text)))))
 
 (define (defined-name form)
   (and (pair? form)

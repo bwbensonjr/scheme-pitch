@@ -33,7 +33,8 @@ EMIT_TEST_PROGRAMS := test-sequence test-table test-error \
 EMIT_EXECUTABLE_TESTS := $(filter-out test-text-files-r7rs,$(EMIT_TEST_PROGRAMS))
 
 .PHONY: help test pitch-run pitch-build self-format self-check real-host-test door-parity no-chez-smoke install-test emit-preflight emit-tests-build emit-tests-run emit-text-files-test audit-r7rs audit-invariants reader-generate reader-check \
-        oracle-datum oracle-layout vendor-diff vendor-verify install uninstall format format-check
+        oracle-datum oracle-layout vendor-diff vendor-verify install uninstall format format-check \
+        bench bench-corpus bench-corpus-verify
 
 help:
 	@echo "test           run the complete Emit application verification matrix"
@@ -59,6 +60,9 @@ help:
 	@echo "install        install pitch under PREFIX (default $(PREFIX))"
 	@echo "uninstall      remove an installed pitch from PREFIX"
 	@echo "oracle-layout  diff the layout engine against Racket's pretty-expressive"
+	@echo "bench          time formatting over the size-graded corpus; not run by test"
+	@echo "bench-corpus   regenerate tests/bench/ from its checked-in recipe"
+	@echo "bench-corpus-verify  fail if tests/bench/ no longer matches that recipe"
 	@echo "vendor-diff    show pitch's changes to laesare's reader"
 	@echo "vendor-verify  check vendor/laesare/ still matches $(LAESARE_TAG)"
 
@@ -168,6 +172,20 @@ uninstall:
 	  '$(DESTDIR)$(PITCH_LIBEXECDIR)/default-config.scm'
 	@rmdir '$(DESTDIR)$(PITCH_LIBEXECDIR)' 2>/dev/null || true
 	@echo "removed pitch from $(DESTDIR)$(PREFIX)"
+
+# Formatting cost, not correctness. Deliberately not a dependency of `test`,
+# and nothing `test` depends on may depend on it: a timing under machine load
+# is flaky, and a flaky check in a correctness suite trains people to ignore
+# failures. The contract it reports is a pair of ratios between measurements
+# taken in the same run, which cancels most machine-level variance.
+bench: build/pitch
+	@sh tools/bench.sh
+
+bench-corpus:
+	@sh tools/generate-bench-corpus.sh
+
+bench-corpus-verify:
+	@sh tools/generate-bench-corpus.sh --verify
 
 # The layout engine is a port of sorawee/pretty-expressive. Written
 # expectations confirm the cases we thought of; only the original disagreeing

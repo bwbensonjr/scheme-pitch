@@ -1,4 +1,13 @@
 ;; -*- mode: scheme; coding: utf-8 -*-
+;; Benchmark corpus member: hand-written code, 1 copies of the unit.
+;;
+;; Not compiled, not installed, not part of the correctness suite.
+;; Assembled by tools/generate-bench-corpus.sh from pitch sources at
+;; 4ad63ecbea6e9eb8a6bfed1a5c44328a7eef16fd. Do not edit by hand.
+
+;; ---- src/pitch/cst.sld, copy 0 ----
+
+;; -*- mode: scheme; coding: utf-8 -*-
 ;; Copyright © 2026 Brent Benson
 ;; SPDX-License-Identifier: MIT
 
@@ -24,7 +33,7 @@
 ;; Nothing here branches on dialect. #vu8( and #u8( produce the same node
 ;; kind; the spelling difference lives in the opening token's text.
 
-(define-library (pitch cst)
+(define-library (bench cst-0)
 (export
   ;; leaves
   make-leaf leaf? leaf-token leaf-text leaf-kind
@@ -39,7 +48,7 @@
   trivia? datum-children dot-leaf? list-improper?
   ;; serialization
   cst-leaves cst-tokens cst->text write-cst)
-(import (scheme base) (pitch reader) (pitch sequence))
+(import (scheme base) (bench reader-0) (bench sequence-0))
 (begin
 
   ;;; Node types
@@ -175,12 +184,71 @@
     (for-each (lambda (l) (write-string (leaf-text l) port)) (cst-leaves node)))
 
   ;; Reproduces; does not format. No character is inserted, removed or moved.
-  ;;
-  ;; The port is closed rather than dropped. It cannot escape, its text has been
-  ;; taken, and an output string port is a host resource: on Emit it is a libc
-  ;; stream, and one that is never closed is a slot every later port has to walk
-  ;; past.
   (define (cst->text node)
     (let ((port (open-output-string)))
       (write-cst node port)
-      (let ((text (get-output-string port))) (close-port port) text)))))
+      (get-output-string port)))))
+
+;; ---- src/pitch/table.sld, copy 0 ----
+
+;;; Tables with the three equality contracts Pitch needs.
+(define-library (bench table-0)
+(export
+  make-symbol-table make-integer-table make-identity-table table? table-ref table-set!
+  table-update! table-delete! table-contains? table-size table-keys table-entries
+  table-copy)
+(import (scheme base))
+(begin
+  (define-record-type <table> (make-table kind storage) table?
+    (kind table-kind)
+    (storage table-storage))
+
+  (define (make-symbol-table) (make-table 'symbol (make-hash-table)))
+  (define (make-integer-table) (make-table 'integer (make-hash-table)))
+
+  ;; Identity tables use Emit's eq?-keyed table so distinct document records
+  ;; remain distinct and cyclic keys require no structural traversal.
+  (define (make-identity-table) (make-table 'identity (make-eq-hash-table)))
+
+  (define (check-key table key)
+    (case (table-kind table)
+      ((symbol) (if (symbol? key) #t (error 'table "expected symbol key" key)))
+      ((integer) (if (integer? key) #t (error 'table "expected integer key" key)))
+      (else #t)))
+
+  (define (table-ref table key default)
+    (check-key table key)
+    (hash-table-ref/default (table-storage table) key default))
+
+  (define (table-contains? table key)
+    (check-key table key)
+    (hash-table-contains? (table-storage table) key))
+
+  (define (table-set! table key value)
+    (check-key table key)
+    (hash-table-set! (table-storage table) key value))
+
+  (define (table-update! table key update default)
+    (table-set! table key (update (table-ref table key default))))
+
+  (define (table-delete! table key)
+    (check-key table key)
+    (hash-table-delete! (table-storage table) key))
+
+  (define (table-size table) (hash-table-size (table-storage table)))
+
+  (define (table-keys table) (hash-table-keys (table-storage table)))
+
+  (define (table-entries table)
+    (let ((entries (hash-table->alist (table-storage table))))
+      (values (list->vector (map car entries)) (list->vector (map cdr entries)))))
+
+  (define (table-copy table)
+    (let ((copy (case (table-kind table)
+                  ((symbol) (make-symbol-table))
+                  ((integer) (make-integer-table))
+                  (else (make-identity-table)))))
+      (for-each (lambda (entry) (table-set! copy (car entry) (cdr entry)))
+                (hash-table->alist (table-storage table)))
+      copy))))
+

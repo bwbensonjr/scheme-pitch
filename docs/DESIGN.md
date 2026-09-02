@@ -973,6 +973,41 @@ on document nodes and cleared afterwards, and every internal node is memoized
 rather than every seventh. The first is what makes a measure computed under one
 cost factory unable to leak into a layout under another.
 
+**Resolution time: both of those divergences were profiled and neither is the
+cost.** This section recorded the objective and said nothing about how long
+minimizing it takes, and issue #15 reported per-line formatting cost roughly
+tripling from a 200-line file to a 2,500-line one, with a generated Unicode table
+worse still. Change `reduce-formatting-cost` measured it. The finding, in full in
+that change's `measurements.md`:
+
+- Memoization scope and granularity are **not** the dominant term. Neither
+  appears near the top of a profile of either the largest hand-written corpus
+  member or the data-dense one. Memoizing every node rather than every seventh
+  contributes to the live heap and so to collector time, second by a wide margin.
+- A quadratic accumulation in the token vector, the CST child sequences or
+  `cst->text` — §6's other guess — is **refuted**. Tokenizing and parsing are
+  linear in every controlled measurement; `cst->text` does not appear in a
+  profile at all.
+- The cost was five superlinear terms, none of them in pitch's algorithms. Three
+  were in the Emit runtime — `rt_intern` scanned its whole symbol table, and the
+  code generator emits an intern per *evaluation* of a quoted symbol literal, so
+  a symbol comparison in an inner loop cost O(symbols interned); `string-set!`
+  reallocated and copied the entire string, making a character-at-a-time buffer
+  fill quadratic. Two were pitch's own use of the host: `(pitch doc)` and
+  `(pitch table)` discriminated their node and table kinds with symbol literals
+  in their hottest loops, and the reader and `cst->text` left every string output
+  port open, which on a libc-backed port makes each new one walk past all its
+  predecessors.
+- Formatting is now near-linear in both size and shape. `make bench` reports a
+  largest-to-smallest per-line ratio of 1.44 and a data-dense-to-code ratio of
+  1.16, against 1.58 and 2.30 before. Emit's own sources check 7–9× faster, and
+  the generated Unicode table that was the worst file per line is now the best.
+
+The general lesson, which is why it is recorded here rather than only in the
+change: **the engine's asymptotics were never the problem, and two plausible
+stories about them were both wrong.** A profile settled in an afternoon what a
+year of reasoning about memo tables would not have.
+
 **The shipped cost factory is the reference's, not pitch's.** Squared overflow
 past the page width, then line count, compared lexicographically. It ships
 because the paper specifies it and the oracle needs both sides to agree on one
