@@ -168,7 +168,8 @@
            (cost-nl (cost-factory-cost-nl factory))
            (limit (cost-factory-limit factory))
            (limit+1 (+ limit 1))
-           ;; doc -> (eqv hashtable of packed (index, i, c) -> measure set)
+           ;; doc -> that node's memo entries, an alist of packed
+           ;; (index, i, c) -> measure set. See `resolve` for why an alist.
            (memo (make-identity-table))
            ;; doc -> set of fullness indexes found to have no layout
            (dynamic-failure (make-identity-table)))
@@ -258,17 +259,31 @@
             ((or (> c limit) (> i limit))
               (resolve-taint d c i beg-full? end-full? index))
             (else
-              (let* ((table (or (table-ref memo d #f)
-                                (let ((fresh (make-integer-table)))
-                                  (table-set! memo d fresh)
-                                  fresh)))
-                     (key (+ (* (+ (* index limit+1) i) limit+1) c))
-                     (hit (table-ref table key #f)))
+              ;; A node's entries are an ALIST, not a hash table.
+              ;;
+              ;; Almost every node is resolved at a handful of distinct
+              ;; (index, i, c) triples, and a hash table per node costs a record,
+              ;; a spine and an eight-slot bucket vector to hold two or three
+              ;; entries. Multiplied by every internal node of a large document
+              ;; that is most of the live heap, and the collector's mark cost is
+              ;; proportional to the live heap -- which is what made the largest
+              ;; corpus member cost more per line than the smallest. An alist of
+              ;; three conses stores three entries.
+              ;;
+              ;; The lookup is linear in a node's entry count rather than
+              ;; constant, and that is the trade: entry counts are small and
+              ;; bounded by the positions the node is actually reached at, while
+              ;; the memory was not. Results are identical either way -- this is
+              ;; a cache, and both shapes hold exactly the same keys.
+              (let* ((key (+ (* (+ (* index limit+1) i) limit+1) c))
+                     (entries (table-ref memo d '()))
+                     (hit (assv key entries)))
                 ;; A stored value is a list or a lazy-set, never #f, and the empty
-                ;; list is true in Scheme, so absence is unambiguous.
-                (or hit
+                ;; list is true in Scheme, so a found entry is unambiguous.
+                (if hit
+                    (cdr hit)
                     (let ((computed (resolve-taint d c i beg-full? end-full? index)))
-                      (table-set! table key computed)
+                      (table-set! memo d (cons (cons key computed) entries))
                       computed)))))))
 
       ;; The taint boundary. A text is measured by where it ends, everything else
