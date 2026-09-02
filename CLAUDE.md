@@ -70,12 +70,22 @@ are cautionary examples, not precedents.
 
 ```
 make test             # reader regression suite plus pitch's own tests
+make oracle-layout    # diff the layout engine against Racket's pretty-expressive
+make bench            # formatting cost over the size-graded corpus
 make vendor-diff      # changeset against pristine upstream
 make vendor-verify    # confirm vendor/ is unmodified
 ```
 
 Tests must be run from the repository root; the baseline suite opens a relative
 path.
+
+`make bench` is about cost, not correctness, and `make test` deliberately does
+not run it: a timing taken under machine load is flaky, and a flaky check in a
+correctness suite trains people to ignore failures. It formats a fixed corpus
+under `tests/bench/` and reports the two ratios `formatting-performance` is
+stated in — largest-to-smallest per-line cost, and data-dense to comparable code.
+`tests/bench/README.md` says what the corpus is and, importantly, what a green
+pair of ratios does *not* cover.
 
 # Resources
 
