@@ -175,7 +175,12 @@
     (for-each (lambda (l) (write-string (leaf-text l) port)) (cst-leaves node)))
 
   ;; Reproduces; does not format. No character is inserted, removed or moved.
+  ;;
+  ;; The port is closed rather than dropped. It cannot escape, its text has been
+  ;; taken, and an output string port is a host resource: on Emit it is a libc
+  ;; stream, and one that is never closed is a slot every later port has to walk
+  ;; past.
   (define (cst->text node)
     (let ((port (open-output-string)))
       (write-cst node port)
-      (get-output-string port)))))
+      (let ((text (get-output-string port))) (close-port port) text)))))
