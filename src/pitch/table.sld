@@ -10,18 +10,31 @@
     (kind table-kind)
     (storage table-storage))
 
-  (define (make-symbol-table) (make-table 'symbol (make-hash-table)))
-  (define (make-integer-table) (make-table 'integer (make-hash-table)))
+  ;; The three kinds are bound once and compared with `eq?` against the binding.
+  ;; Writing them as literals here -- or as `case` keys, which is the same thing
+  ;; -- costs an intern per table operation, and interning walks Emit's whole
+  ;; symbol table. `check-key` runs on every memo-table read the resolver makes,
+  ;; which made it one of the most expensive procedures in the program. See
+  ;; openspec/changes/reduce-formatting-cost/measurements.md.
+  (define kind-symbol 'symbol)
+  (define kind-integer 'integer)
+  (define kind-identity 'identity)
+
+  (define (make-symbol-table) (make-table kind-symbol (make-hash-table)))
+  (define (make-integer-table) (make-table kind-integer (make-hash-table)))
 
   ;; Identity tables use Emit's eq?-keyed table so distinct document records
   ;; remain distinct and cyclic keys require no structural traversal.
-  (define (make-identity-table) (make-table 'identity (make-eq-hash-table)))
+  (define (make-identity-table) (make-table kind-identity (make-eq-hash-table)))
 
   (define (check-key table key)
-    (case (table-kind table)
-      ((symbol) (if (symbol? key) #t (error 'table "expected symbol key" key)))
-      ((integer) (if (integer? key) #t (error 'table "expected integer key" key)))
-      (else #t)))
+    (let ((kind (table-kind table)))
+      (cond
+        ((eq? kind kind-symbol)
+          (if (symbol? key) #t (error 'table "expected symbol key" key)))
+        ((eq? kind kind-integer)
+          (if (integer? key) #t (error 'table "expected integer key" key)))
+        (else #t))))
 
   (define (table-ref table key default)
     (check-key table key)
@@ -51,10 +64,11 @@
       (values (list->vector (map car entries)) (list->vector (map cdr entries)))))
 
   (define (table-copy table)
-    (let ((copy (case (table-kind table)
-                  ((symbol) (make-symbol-table))
-                  ((integer) (make-integer-table))
-                  (else (make-identity-table)))))
+    (let* ((kind (table-kind table))
+           (copy (cond
+                   ((eq? kind kind-symbol) (make-symbol-table))
+                   ((eq? kind kind-integer) (make-integer-table))
+                   (else (make-identity-table)))))
       (for-each (lambda (entry) (table-set! copy (car entry) (cdr entry)))
                 (hash-table->alist (table-storage table)))
       copy))))

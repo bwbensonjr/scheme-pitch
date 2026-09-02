@@ -93,9 +93,32 @@
 
   (define (doc-fails-statically? d index) (if (memv index (doc-fail-indexes d)) #t #f))
 
+  ;;; Node kinds
+  ;;
+  ;; Each kind is bound to a variable and every constructor and predicate below
+  ;; names the variable rather than writing the symbol out. That is not a style
+  ;; preference. Emit re-interns a quoted symbol literal on every evaluation and
+  ;; interning walks the whole symbol table, so `(eq? (doc-kind d) 'concat)`
+  ;; costs a string comparison against every symbol the run has ever made --
+  ;; including one per distinct identifier in the source being formatted. These
+  ;; predicates are the inner loop of `flatten`, `doc-map-children` and the
+  ;; resolver, so that turned formatting cost into (work x symbols) and was the
+  ;; dominant term in the whole pipeline. Bound once, the comparison is a word
+  ;; against a word. See openspec/changes/reduce-formatting-cost/measurements.md.
+  (define kind-text 'text)
+  (define kind-newline 'newline)
+  (define kind-concat 'concat)
+  (define kind-alt 'alt)
+  (define kind-nest 'nest)
+  (define kind-align 'align)
+  (define kind-reset 'reset)
+  (define kind-full 'full)
+  (define kind-cost 'cost)
+  (define kind-fail 'fail)
+
   (define (make-doc-text fail-indexes nl-cnt s len)
-    (make-doc 'text fail-indexes nl-cnt s len))
-  (define (doc-text? d) (and (doc? d) (eq? (doc-kind d) 'text)))
+    (make-doc kind-text fail-indexes nl-cnt s len))
+  (define (doc-text? d) (and (doc? d) (eq? (doc-kind d) kind-text)))
   (define doc-text-s doc-a)
   (define doc-text-len doc-b)
 
@@ -107,52 +130,52 @@
   ;; s is the string this break becomes when flattened, or #f if it cannot be
   ;; flattened at all.
   (define (make-doc-newline fail-indexes nl-cnt s)
-    (make-doc 'newline fail-indexes nl-cnt s #f))
-  (define (doc-newline? d) (and (doc? d) (eq? (doc-kind d) 'newline)))
+    (make-doc kind-newline fail-indexes nl-cnt s #f))
+  (define (doc-newline? d) (and (doc? d) (eq? (doc-kind d) kind-newline)))
   (define doc-newline-s doc-a)
 
   (define (make-doc-concat fail-indexes nl-cnt a b)
-    (make-doc 'concat fail-indexes nl-cnt a b))
-  (define (doc-concat? d) (and (doc? d) (eq? (doc-kind d) 'concat)))
+    (make-doc kind-concat fail-indexes nl-cnt a b))
+  (define (doc-concat? d) (and (doc? d) (eq? (doc-kind d) kind-concat)))
   (define doc-concat-a doc-a)
   (define doc-concat-b doc-b)
 
   (define (make-doc-alt fail-indexes nl-cnt a b)
-    (make-doc 'alt fail-indexes nl-cnt a b))
-  (define (doc-alt? d) (and (doc? d) (eq? (doc-kind d) 'alt)))
+    (make-doc kind-alt fail-indexes nl-cnt a b))
+  (define (doc-alt? d) (and (doc? d) (eq? (doc-kind d) kind-alt)))
   (define doc-alt-a doc-a)
   (define doc-alt-b doc-b)
 
   (define (make-doc-nest fail-indexes nl-cnt n d)
-    (make-doc 'nest fail-indexes nl-cnt n d))
-  (define (doc-nest? d) (and (doc? d) (eq? (doc-kind d) 'nest)))
+    (make-doc kind-nest fail-indexes nl-cnt n d))
+  (define (doc-nest? d) (and (doc? d) (eq? (doc-kind d) kind-nest)))
   (define doc-nest-n doc-a)
   (define doc-nest-d doc-b)
 
   (define (make-doc-align fail-indexes nl-cnt d)
-    (make-doc 'align fail-indexes nl-cnt d #f))
-  (define (doc-align? d) (and (doc? d) (eq? (doc-kind d) 'align)))
+    (make-doc kind-align fail-indexes nl-cnt d #f))
+  (define (doc-align? d) (and (doc? d) (eq? (doc-kind d) kind-align)))
   (define doc-align-d doc-a)
 
   (define (make-doc-reset fail-indexes nl-cnt d)
-    (make-doc 'reset fail-indexes nl-cnt d #f))
-  (define (doc-reset? d) (and (doc? d) (eq? (doc-kind d) 'reset)))
+    (make-doc kind-reset fail-indexes nl-cnt d #f))
+  (define (doc-reset? d) (and (doc? d) (eq? (doc-kind d) kind-reset)))
   (define doc-reset-d doc-a)
 
   (define (make-doc-full fail-indexes nl-cnt d)
-    (make-doc 'full fail-indexes nl-cnt d #f))
-  (define (doc-full? d) (and (doc? d) (eq? (doc-kind d) 'full)))
+    (make-doc kind-full fail-indexes nl-cnt d #f))
+  (define (doc-full? d) (and (doc? d) (eq? (doc-kind d) kind-full)))
   (define doc-full-d doc-a)
 
   (define (make-doc-cost fail-indexes nl-cnt n d)
-    (make-doc 'cost fail-indexes nl-cnt n d))
-  (define (doc-cost? d) (and (doc? d) (eq? (doc-kind d) 'cost)))
+    (make-doc kind-cost fail-indexes nl-cnt n d))
+  (define (doc-cost? d) (and (doc? d) (eq? (doc-kind d) kind-cost)))
   (define doc-cost-n doc-a)
   (define doc-cost-d doc-b)
 
   (define (make-doc-fail fail-indexes nl-cnt)
-    (make-doc 'fail fail-indexes nl-cnt #f #f))
-  (define (doc-fail? d) (and (doc? d) (eq? (doc-kind d) 'fail)))
+    (make-doc kind-fail fail-indexes nl-cnt #f #f))
+  (define (doc-fail? d) (and (doc? d) (eq? (doc-kind d) kind-fail)))
 
   ;;; text, and the line ending it refuses
 
