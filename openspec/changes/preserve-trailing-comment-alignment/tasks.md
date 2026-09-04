@@ -76,15 +76,15 @@
 
 ## 5. Acceptance against the reported case
 
-- [ ] 5.1 Reformat issue #14's repro and confirm the three comments land at one
+- [x] 5.1 Reformat issue #14's repro and confirm the three comments land at one
       column derived from the reflowed code
-- [ ] 5.2 Reformat Emit's corpus and count how many of the 388 padded sites are
+- [x] 5.2 Reformat Emit's corpus and count how many of the 388 padded sites are
       aligned, how many are declined for width, and how many are recognized as
       unaligned. Report all three numbers; the third is the one that says whether
       the recognition rule matched the house convention
-- [ ] 5.3 Read the diff at a sample of sites rather than only counting, and record
+- [x] 5.3 Read the diff at a sample of sites rather than only counting, and record
       any place where the re-derived column reads worse than the author's
-- [ ] 5.4 Confirm pitch refuses nothing across the corpus and every file verifies
+- [x] 5.4 Confirm pitch refuses nothing across the corpus and every file verifies
 
 ## 6. Reformat pitch's own sources
 
