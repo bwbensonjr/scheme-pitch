@@ -32,27 +32,27 @@
 
 ## 3. The pass
 
-- [ ] 3.1 Add `(pitch align)` exporting one operation over source text, rendered
+- [x] 3.1 Add `(pitch align)` exporting one operation over source text, rendered
       text and page width, returning text
-- [ ] 3.2 Source side: walk the source tokens, mark each line comment as trailing
+- [x] 3.2 Source side: walk the source tokens, mark each line comment as trailing
       or not, record its start column, and mark aligned by the adjacent-line
       shared-column rule. Produce one flag per line comment in source order
-- [ ] 3.3 Output side: tokenize the rendered text, locate each line comment's
+- [x] 3.3 Output side: tokenize the rendered text, locate each line comment's
       line, its start column and the end column of the last code token before it
       on that line
-- [ ] 3.4 Correspondence: if the two line-comment counts differ, return the
+- [x] 3.4 Correspondence: if the two line-comment counts differ, return the
       rendered text unchanged and align nothing. Do not raise, do not guess a
       pairing, do not suppress the checks
-- [ ] 3.5 Group marked output comments into maximal runs of consecutive output
+- [x] 3.5 Group marked output comments into maximal runs of consecutive output
       lines; compute each run's column as one past the widest code end in the run
-- [ ] 3.6 Decline a run where any line would end past the page width after
+- [x] 3.6 Decline a run where any line would end past the page width after
       alignment; decline per run and never globally
-- [ ] 3.7 Rewrite only the run of spaces between the last code token and the `;`.
+- [x] 3.7 Rewrite only the run of spaces between the last code token and the `;`.
       Assert that no other character of the rendered text is touched
-- [ ] 3.8 Confirm `(pitch align)` imports none of `(pitch doc)`, `(pitch cost)`,
+- [x] 3.8 Confirm `(pitch align)` imports none of `(pitch doc)`, `(pitch cost)`,
       `(pitch layout)`, `(pitch print)`, `(pitch style)`, and add a test asserting
       it, in the way `style-grammar`'s import test does
-- [ ] 3.9 `format.sld`: insert the pass between layout and `check-output`, and
+- [x] 3.9 `format.sld`: insert the pass between layout and `check-output`, and
       pass `check-output` the aligned text. Update the pipeline comment at the top
       of the file, which today names four stages
 

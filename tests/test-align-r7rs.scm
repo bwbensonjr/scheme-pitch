@@ -22,6 +22,7 @@
 ;; column, and `run-recognized-whole` below is the test that says so.
 (import
   (scheme base)
+  (scheme file)
   (pitch align)
   (pitch format)
   (tests config)
@@ -54,6 +55,45 @@
 (define (settles? src width)
   (let ((once (text-of src width)))
     (and once (equal? once (text-of once width)))))
+
+;; Every run of spaces sitting between a non-space and a semicolon, reduced to
+;; one space. Applied to a text the pass produced, this undoes exactly what the
+;; pass is allowed to do, so comparing the result against the rendered text the
+;; pass was handed asserts that no other character moved. Indentation is left
+;; alone: a run at the start of a line is not a gap.
+(define (collapse-gaps text)
+  (let ((n (string-length text)) (out (open-output-string)))
+    (let loop ((i 0) (prev #\newline))
+      (if (= i n)
+          (let ((result (get-output-string out))) (close-port out) result)
+          (let ((c (string-ref text i)))
+            (if (char=? c #\space)
+                (let count ((j i))
+                  (if (and (< j n) (char=? (string-ref text j) #\space))
+                      (count (+ j 1))
+                      (begin
+                        (if (and (not (char=? prev #\newline))
+                                 (< j n)
+                                 (char=? (string-ref text j) #\;))
+                            (write-char #\space out)
+                            (write-string (make-string (- j i) #\space) out))
+                        (loop j #\space))))
+                (begin (write-char c out) (loop (+ i 1) c))))))))
+
+(define (file-text path)
+  (let ((port (open-input-file path)))
+    (let loop ((characters '()))
+      (let ((character (read-char port)))
+        (if (eof-object? character)
+            (begin (close-port port) (list->string (reverse characters)))
+            (loop (cons character characters)))))))
+
+(define (contains? haystack needle)
+  (let ((hn (string-length haystack)) (nn (string-length needle)))
+    (let loop ((i 0))
+      (cond ((> (+ i nn) hn) #f)
+            ((string=? (substring haystack i (+ i nn)) needle) #t)
+            (else (loop (+ i 1)))))))
 
 (define lf (string (integer->char #x0a)))
 (define cr (string (integer->char #x0d)))
@@ -373,6 +413,120 @@
 (test-assert (settles? mixed 40))
 (test-assert (settles? mixed 60))
 (test-assert (settles? mixed 88))
+
+(test-end)
+
+;;; 3. The pass, at its own interface
+
+;; What the printer renders for the three fixtures above, before alignment: one
+;; space before every trailing comment. These are the second argument the pass
+;; takes, and the texts the aligned output must reduce back to.
+(define issue-14-rendered
+  (string-append
+    "(define sfy-fold-limit 1073741823) ; 2^30 - 1" lf
+    "(define sfy-other-limit 255) ; a byte" lf
+    "(define sfy-third 7) ; three bits" lf))
+
+(define reflowed-apart-rendered
+  (string-append
+    "(define x 1) ; one" lf
+    "(define (f a b)" lf
+    "  (some-long-call a b)" lf
+    "  (another-long-call a b)) ; two" lf
+    "(define y 2) ; three" lf))
+
+(define two-source-runs-rendered
+  (string-append
+    "(define aa 1) ; one" lf
+    "(define bb 2) ; two" lf
+    "(define cc-longer-name 3) ; three" lf
+    "(define dd 4) ; four" lf))
+
+(test-begin "correspondence-by-ordinal")
+
+;; The flags are matched to the output's comments by ordinal, so the pass first
+;; establishes that there are as many of one as of the other.
+(test-equal issue-14-aligned (align-trailing-comments issue-14 issue-14-rendered 88))
+
+;; When there are not, nothing is aligned and the rendered text is returned as
+;; it stands -- not raised on, and not aligned against a guessed pairing. A
+;; count that disagrees is a printer defect, and layer 1, one stage later,
+;; reports it precisely.
+(test-equal (string-append "(aa) ; one" lf)
+            (align-trailing-comments
+              (string-append "(aa) ; one" lf "(bb) ; two" lf)
+              (string-append "(aa) ; one" lf)
+              88))
+
+(test-equal (string-append "(aa) ; one" lf "(bb) ; two" lf)
+            (align-trailing-comments
+              (string-append "(aa) ; one" lf)
+              (string-append "(aa) ; one" lf "(bb) ; two" lf)
+              88))
+
+;; Alignment depends on the source text, the rendered text and the width, and
+;; on nothing else -- so a width that cannot hold the run yields the rendered
+;; text unchanged from the same two texts.
+(test-equal issue-14-rendered (align-trailing-comments issue-14 issue-14-rendered 40))
+
+(test-end)
+
+(test-begin "only-the-gap-changes")
+
+;; Reducing every gap of the aligned text to one space returns the rendered text
+;; the pass was given, character for character. Anything the pass had touched
+;; besides the spaces before a semicolon would survive that reduction and show
+;; up here.
+(test-equal issue-14-rendered
+            (collapse-gaps (align-trailing-comments issue-14 issue-14-rendered 88)))
+
+(test-equal reflowed-apart-rendered
+            (collapse-gaps
+              (align-trailing-comments reflowed-apart reflowed-apart-rendered 40)))
+
+(test-equal two-source-runs-rendered
+            (collapse-gaps
+              (align-trailing-comments two-source-runs two-source-runs-rendered 88)))
+
+;; And the helper is not vacuous: it does reduce a gap when there is one.
+(test-equal issue-14-rendered (collapse-gaps issue-14-aligned))
+
+(test-end)
+
+(test-begin "a-gap-that-is-not-spaces-alone")
+
+;; `(a) #|x|# ; c` -- a block comment between the code and the comment. Both
+;; comments here are trailing and share a column, so both are recognized as
+;; aligned, but widening this gap would move a token rather than whitespace, and
+;; which column "one past the code" names is not a question this rule answers.
+;; So the site declines, and declining is stable.
+(define gap-not-spaces
+  (string-append
+    "(aa)      #|x|# ; one" lf
+    "(bbbbbb)  #|x|# ; two" lf))
+
+(define gap-not-spaces-output
+  (string-append
+    "(aa) #|x|# ; one" lf
+    "(bbbbbb) #|x|# ; two" lf))
+
+(test-equal '(#t #t) (source-alignment-flags gap-not-spaces))
+(test-equal 'ok (status gap-not-spaces 88))
+(test-equal gap-not-spaces-output (text-of gap-not-spaces 88))
+(test-equal gap-not-spaces-output (twice gap-not-spaces 88))
+
+(test-end)
+
+(test-begin "the-alignment-library-is-layered-below-the-engine")
+
+;; The column depends on sibling lines, which no document in the algebra can
+;; see, so this pass sits outside the engine and must stay there. What it is
+;; allowed to import is the check, in the way the style library's is.
+(define align-source (file-text "src/pitch/align.sld"))
+
+(for-each
+  (lambda (forbidden) (test-assert (not (contains? align-source forbidden))))
+  '("(pitch doc)" "(pitch cost)" "(pitch layout)" "(pitch print)" "(pitch style)"))
 
 (test-end)
 

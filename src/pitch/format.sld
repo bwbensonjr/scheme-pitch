@@ -4,15 +4,26 @@
 
 ;; The pipeline: source text in, formatted text out, or a reason why not.
 ;;
-;;   tokenize -> parse -> cst->document -> layout -> check
+;;   tokenize -> parse -> cst->document -> layout -> align -> check
 ;;
 ;; This is the first thing that runs the safety checks against real output, and
 ;; the shape of the interface is what keeps that honest. check-output takes two
-;; source *texts*, and the text it is given here is the string the layout engine
+;; source *texts*, and the text it is given here is the string alignment
 ;; returned. There is no in-memory tree on that path, and no way to put one
 ;; there: check-output does not accept a tree. docs/DESIGN.md §1 calls comparing
 ;; a tree against itself the vacuousness trap, and the reason it is avoidable
 ;; here is structural rather than a matter of remembering.
+;;
+;; ALIGNMENT RUNS BEFORE THE CHECKS, AND NOTHING RUNS AFTER THEM. The text
+;; handed to check-output is character for character the text returned on
+;; success. A pass placed after verification would return text nothing had
+;; checked while still reporting success -- the exact failure the check
+;; apparatus exists to prevent, and invisible, because the status would look the
+;; same. The cost of this ordering is that alignment can turn a passing format
+;; into a check failure, which is the correct failure mode: the pass only widens
+;; a run of spaces between two tokens, so layer 1 sees the same token sequence
+;; and layer 2 the same data, and if either ever disagrees something is
+;; genuinely wrong.
 ;;
 ;; REFUSAL IS THE COMMON CASE FOR ANYTHING DOUBTFUL. An unclean parse is not
 ;; formatted, a source whose multi-line tokens carry a line ending the engine
@@ -33,6 +44,7 @@
   format-result-tainted?)
 (import
   (scheme base)
+  (pitch align)
   (pitch parse)
   (pitch print)
   (pitch check)
@@ -118,12 +130,20 @@
                   ;; it into a status would hide it.
                   (let-values (((output result) (layout (cst->document tree table)
                                                         (default-cost-factory width))))
-                    (let ((tainted? (layout-result-tainted? result)))
-                      ;; Stage 4. Two texts: the one that came in, and the one just
-                      ;; produced. Never the tree either was built from.
-                      (let-values (((ok? layer detail) (check-output source output)))
+                    (let ((tainted? (layout-result-tainted? result))
+                          ;; Stage 3.5. Trailing comments the source aligned are
+                          ;; put back at a column derived from the code as
+                          ;; reflowed. The source text is an input because the
+                          ;; alignment is only visible there; the width is the
+                          ;; same one layout used, so a run is never aligned into
+                          ;; an overflow the cost model did not price.
+                          (aligned (align-trailing-comments source output width)))
+                      ;; Stage 4. Two texts: the one that came in, and the one
+                      ;; about to be returned. Never the tree either was built
+                      ;; from, and never a text some later stage will still touch.
+                      (let-values (((ok? layer detail) (check-output source aligned)))
                         (if ok?
-                            (values output (make-format-result 'ok #f tainted?))
+                            (values aligned (make-format-result 'ok #f tainted?))
                             (values #f
                                     (make-format-result
                                       'check-failed
