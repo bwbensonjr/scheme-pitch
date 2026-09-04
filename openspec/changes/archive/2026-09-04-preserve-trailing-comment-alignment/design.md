@@ -182,9 +182,12 @@ worth a test rather than a comment.
 - **The correspondence is wrong and the output is silently mis-aligned.**
   → Decision 3's length check, plus tasks §3's negative case, plus layer 1
   immediately after.
-- **372 sites in Emit re-align to columns the author did not choose.** → That is
-  what "re-derive the column" means, and the acceptance evidence in tasks §5 is
-  a read of the actual diff rather than a count.
+- **105 sites in Emit re-align to columns the author did not choose, and 283
+  padded sites collapse to a single space.** → The first is what "re-derive the
+  column" means. The second is the shared-column rule declining to invent a
+  column for a comment that shares one with nothing; it is measured rather than
+  assumed, and tasks §5's evidence is a read of the actual diff rather than a
+  count.
 - **One extra tokenization per file.** → Accepted; see Decision 3. Measured in
   tasks §4 against the numbers in issue #15 so that it is a recorded cost rather
   than an assumed-small one.

@@ -16,6 +16,7 @@
  (library (pitch parse) (source "src/pitch/parse.sld"))
  (library (pitch datum) (source "src/pitch/datum.sld"))
  (library (pitch check) (source "src/pitch/check.sld"))
+ (library (pitch align) (source "src/pitch/align.sld"))
  (library (pitch cli) (source "src/pitch/cli.sld"))
  (library (tests runner) (source "tests/runner.sld"))
  (library (tests config) (source "tests/config.sld"))
@@ -76,6 +77,9 @@
  (program test-format-r7rs
           (source "tests/test-format-r7rs.scm")
           (output "build/test-format-r7rs"))
+ (program test-align-r7rs
+          (source "tests/test-align-r7rs.scm")
+          (output "build/test-align-r7rs"))
  (program test-cli-r7rs
           (source "tests/test-cli-r7rs.scm")
           (output "build/test-cli-r7rs"))
