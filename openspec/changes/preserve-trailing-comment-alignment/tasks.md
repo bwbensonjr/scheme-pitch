@@ -68,7 +68,7 @@
       and this is how that is demonstrated
 - [x] 4.5 Format a file with no trailing comments using pitch built from this
       tree and from the previous commit: byte identical
-- [ ] 4.6 Measure the added cost of the extra tokenization on the largest file in
+- [x] 4.6 Measure the added cost of the extra tokenization on the largest file in
       the corpus and record it against the baseline in issue #15, so it is a
       known number rather than an assumed-small one
 - [x] 4.7 `make vendor-verify` is clean; `vendor/` and `src/pitch/reader.sld` are
@@ -108,4 +108,4 @@
       hand — it says blank-line runs are "the single declared exception", and a
       delta's Purpose is ignored for an existing capability, so archiving will not
       change it
-- [ ] 7.5 Comment on issue #14 with the resolution and the three counts from 5.2
+- [x] 7.5 Comment on issue #14 with the resolution and the three counts from 5.2
