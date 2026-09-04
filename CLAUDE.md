@@ -89,6 +89,10 @@ pair of ratios does *not* cover.
 
 # Resources
 
+- We are using Emit as our Scheme implementation at `../emit`. If changes are
+  needed in Emit they should be filed as issues in the `bwbensonjr/emit` Github
+  repository and they will be picked up by Emit maintainers. Do not fix Emit
+  issues as part of a `pitch` project or change.
 - We use `ghq` for managing local source code repositories giving access to
   - `../../../gitlab.com/weinholt/laesare` — the `laesare` R6RS/R7RS reader
   - `../../cisco/ChezScheme/` — the Chez Scheme R6RS implementation
