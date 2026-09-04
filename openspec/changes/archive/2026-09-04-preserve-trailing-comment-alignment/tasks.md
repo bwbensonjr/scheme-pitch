@@ -104,7 +104,7 @@
       the terms an adopting project needs to decide
 - [x] 7.3 Confirm §2's `; fmt: off` open question still reads correctly beside a
       two-entry list, and that nothing in it implied the list would stay at one
-- [ ] 7.4 At sync, edit `openspec/specs/preserved-formatting/spec.md`'s Purpose by
+- [x] 7.4 At sync, edit `openspec/specs/preserved-formatting/spec.md`'s Purpose by
       hand — it says blank-line runs are "the single declared exception", and a
       delta's Purpose is ignored for an existing capability, so archiving will not
       change it
