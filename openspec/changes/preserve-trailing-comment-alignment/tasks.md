@@ -1,33 +1,33 @@
 ## 1. Recognition, tested against the source alone
 
-- [ ] 1.1 Add `tests/test-align-r7rs.scm` and register it with the runner
-- [ ] 1.2 Recognition: three consecutive lines whose trailing comments share a
+- [x] 1.1 Add `tests/test-align-r7rs.scm` and register it with the runner
+- [x] 1.2 Recognition: three consecutive lines whose trailing comments share a
       column are all aligned; a lone trailing comment is not; two padded comments
       at *different* columns are not
-- [ ] 1.3 An own-line comment is never aligned, whatever column it begins at, and
+- [x] 1.3 An own-line comment is never aligned, whatever column it begins at, and
       an own-line comment between two aligned lines does not join the run
-- [ ] 1.4 A block comment, a datum comment and a directive are never aligned,
+- [x] 1.4 A block comment, a datum comment and a directive are never aligned,
       even when two of them share a column on adjacent lines
-- [ ] 1.5 Recognition is correct for each of the seven line endings the reader
+- [x] 1.5 Recognition is correct for each of the seven line endings the reader
       counts, and for CRLF specifically, since a two-character ending is where a
       naive line scan miscounts
-- [ ] 1.6 A trailing comment on the first and on the last line of the file, and a
+- [x] 1.6 A trailing comment on the first and on the last line of the file, and a
       file whose last line has no terminator
 
 ## 2. The fixed point, written before the implementation
 
-- [ ] 2.1 Issue #14's repro: three `define`s with comments aligned at one column,
+- [x] 2.1 Issue #14's repro: three `define`s with comments aligned at one column,
       formatted twice, byte identical both times
-- [ ] 2.2 The case that breaks a padding rule: a run whose widest line receives a
+- [x] 2.2 The case that breaks a padding rule: a run whose widest line receives a
       single space. Format, then format the output, and assert the run is
       recognized whole and the second output is identical. This is the test that
       justifies Decision 2 in `design.md` and it must be written first
-- [ ] 2.3 A source run that reflows into non-adjacent output lines: each piece
+- [x] 2.3 A source run that reflows into non-adjacent output lines: each piece
       aligns independently and the result is a fixed point
-- [ ] 2.4 Two source runs that reflow into adjacent output lines: they align as
+- [x] 2.4 Two source runs that reflow into adjacent output lines: they align as
       one run and the result is a fixed point
-- [ ] 2.5 A run declined for width: single spaces, and a fixed point
-- [ ] 2.6 A mixed file with alignable and declined runs, own-line comments and
+- [x] 2.5 A run declined for width: single spaces, and a fixed point
+- [x] 2.6 A mixed file with alignable and declined runs, own-line comments and
       blank lines, formatted twice at three widths
 
 ## 3. The pass

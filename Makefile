@@ -28,8 +28,8 @@ EMIT_TEST_PROGRAMS := test-sequence test-table test-error \
                       test-style-r7rs test-diagnostic-r7rs test-doc-r7rs \
                       test-cst-r7rs test-datum-check-r7rs test-datum-r7rs \
                       test-check-r7rs test-layout-r7rs test-config-r7rs \
-                      test-print-r7rs test-format-r7rs test-cli-r7rs \
-                      test-text-files-r7rs
+                      test-print-r7rs test-format-r7rs test-align-r7rs \
+                      test-cli-r7rs test-text-files-r7rs
 EMIT_EXECUTABLE_TESTS := $(filter-out test-text-files-r7rs,$(EMIT_TEST_PROGRAMS))
 
 .PHONY: help test pitch-run pitch-build self-format self-check real-host-test door-parity no-chez-smoke install-test emit-preflight emit-tests-build emit-tests-run emit-text-files-test audit-r7rs audit-invariants reader-generate reader-check \
