@@ -96,13 +96,13 @@
 
 ## 7. Documentation
 
-- [ ] 7.1 `docs/DESIGN.md` §2: the Preserved-formatting list grows from one entry
+- [x] 7.1 `docs/DESIGN.md` §2: the Preserved-formatting list grows from one entry
       to two. State the recognition rule, the re-derivation, the width refusal,
       and the idempotence argument, since that argument is the whole reason the
       rule is shared-column rather than padding
-- [ ] 7.2 `README.md`'s preserved-formatting section: the same two entries, in
+- [x] 7.2 `README.md`'s preserved-formatting section: the same two entries, in
       the terms an adopting project needs to decide
-- [ ] 7.3 Confirm §2's `; fmt: off` open question still reads correctly beside a
+- [x] 7.3 Confirm §2's `; fmt: off` open question still reads correctly beside a
       two-entry list, and that nothing in it implied the list would stay at one
 - [ ] 7.4 At sync, edit `openspec/specs/preserved-formatting/spec.md`'s Purpose by
       hand — it says blank-line runs are "the single declared exception", and a

@@ -255,6 +255,12 @@ is a change to the algebra and wants its own proposal.
 
 ## 2. Preserved formatting
 
+Two facts survive a reflow. Neither is a set of bytes carried across; each is a
+fact re-derived against the code as laid out, which is what lets both hold under
+reflowing at all.
+
+### 2.1 Blank-line counts
+
 Blank-line counts survive: at most one consecutive blank line
 inside a form, at most two between top-level forms. (Black's rule, and the
 behavior `raco fmt` exposes as `--max-blank-lines`.)
@@ -272,10 +278,92 @@ collapsing it would delete the blank line just preserved. And the break that
 after every break and a blank line holding the enclosing indentation as trailing
 whitespace is not blank.
 
+### 2.2 Trailing-comment column alignment
+
+A column of aligned trailing comments survives, at a column re-derived from the
+reflowed code. Three comments at one column read as a table with three rows; the
+same three at ragged columns read as three unrelated remarks. Nothing about the
+code changed and yet what a reader takes from it did, which is the definition of
+formatting that carries meaning — the same argument that justifies 2.1.
+
+**Settled and implemented,** in `(pitch align)`, as a pass over the rendered
+text between layout and the output checks.
+
+**Recognized as a shared column, never as padding.** A trailing line comment is
+*aligned* when the source line immediately before or after it also ends in a
+trailing line comment beginning at the same column. Everything else — a lone
+padded comment, two padded comments at different columns, any own-line comment,
+any block or datum comment — is unaligned.
+
+That the rule is a shared column rather than "two or more spaces" is the whole
+of it, and the reason is idempotence. Align a run whose code widths are 20, 30
+and 25 and the widest line receives a *single space*. A padding rule fails to
+re-recognize that line on the next format, the run splits into three runs of
+one, and all three collapse back to single spaces. A shared column re-detects
+itself exactly, because after alignment every comment in the run begins at one
+column.
+
+**The column is re-derived, not reproduced.** An absolute source column cannot
+survive a reflow, because reflowing changes the width of the code the author
+chose it against. So runs are formed over *output* lines — maximal sequences of
+consecutive lines ending in an aligned trailing comment — and each run's
+comments go to one column, one space past the widest code in the run. A run of
+one falls out of that formula as a single space, so it needs no special case and
+has none.
+
+Because runs are the output's and not the source's, a source run that reflows
+apart becomes several runs aligned independently, and two source runs that end
+up adjacent become one. Both are correct: the column is a fact about the output.
+
+**Declined rather than bought with an overflowing line.** If aligning a run
+would put any of its lines past the page width, that run keeps its single
+spaces. Per run, so one wide line cannot un-align an unrelated block.
+
+**Why the fixed point holds, including the case that is not obvious.** After a
+run is aligned every comment in it shares a column, so the next format
+recognizes the same run and, over unchanged code, computes the same column. A
+declined run is stable too: single spaces at differing columns are recognized as
+unaligned and left alone.
+
+The case worth spelling out is a comment the author did *not* align whose column
+happens to match an adjacent aligned run's. On the second format it joins that
+run — and the column does not move, because joining requires its own code to end
+exactly one column left of the shared column, so the recomputed maximum is
+unchanged. The fixed point is structural rather than a property patched in.
+
+**What this does not preserve, measured.** In Emit's 32 hand-authored sources,
+388 trailing comments carry two or more spaces before the semicolon, and only
+105 of those share a column with an adjacent line. The other 283 are lone
+comments pushed clear of a single definition:
+
+```scheme
+(define (hex2 b)                  ; byte 0..255 -> two uppercase hex digits
+```
+
+Those collapse to a single space. A lone comment has no second row to form a
+table with, so there is no horizontal signal to preserve, and inventing a column
+for it would leave it padded against code that no longer justifies the padding.
+Anyone reading a pitch diff for the first time will see this before they see the
+105, so it is written down rather than left to be discovered.
+
+Aligning anything else in a column — the values in a `define` run, the arrows in
+a table of clauses — is a non-goal, and the two interact: a source that aligned
+both its values and its comments keeps the comment column and loses the value
+one.
+
+### 2.3 Open questions
+
 **Open.** The `; fmt: off` / `; fmt: on` escape hatch: syntax, scope (line,
 form, region), and whether it exists at all in v1. SRFI 272's in-file
 `;; * pp-styles: sym := style` comment is the community precedent for magic
 comments and suggests a syntax.
+
+Neither entry above answers it, and adding a third would not either. 2.1 and
+2.2 each preserve a fact the code still carries after a reflow — a blank line
+between two forms, a column two comments share. This question is about a signal
+the code does not carry at all: a bare line break, which forces nothing and so
+leaves nothing to re-derive. That is a different kind of problem and wants a
+different kind of answer.
 
 **A concrete case now wants it, in this repository.** `usage-lines` in
 `src/pitch/cli.sld` is a quoted list of strings, one per line of `--help`

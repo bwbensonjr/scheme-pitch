@@ -293,6 +293,41 @@
 
 (test-end)
 
+(test-begin "an-unmarked-comment-joins-a-run")
+
+;; The case the fixed-point argument is not obvious for. Lines one and two share
+;; column 17 and are marked; line three sits at 14 and is not. Aligning the run
+;; puts its comments at column 14, which is where line three's already was, so
+;; the *second* format recognizes all three as one run.
+;;
+;; That is safe, and structurally so: an unmarked line can only end up at the
+;; shared column if its own code ends exactly one column left of it -- that is
+;; what a single space means -- so it cannot be wider than the run's widest, and
+;; the recomputed column is the same. A narrower line can never join.
+(define joins-a-run
+  (string-append
+    "(define aa 1)    ; one" lf
+    "(define bb 2)    ; two" lf
+    "(define cc 3) ; three" lf))
+
+(define joins-a-run-output
+  (string-append
+    "(define aa 1) ; one" lf
+    "(define bb 2) ; two" lf
+    "(define cc 3) ; three" lf))
+
+(test-equal '(#t #t #f) (source-alignment-flags joins-a-run))
+(test-equal joins-a-run-output (text-of joins-a-run 88))
+
+;; The third comment is part of the run as far as the next format is concerned.
+(test-equal '(#t #t #t) (source-alignment-flags joins-a-run-output))
+
+;; And the column does not move for it.
+(test-equal joins-a-run-output (twice joins-a-run 88))
+(test-assert (settles? joins-a-run-output 88))
+
+(test-end)
+
 (test-begin "run-reflowed-apart")
 
 ;; A source run of three whose middle form is too wide for the page. Its comment

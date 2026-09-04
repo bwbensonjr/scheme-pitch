@@ -281,8 +281,30 @@ argued onto this list and documented.
 
 ### Preserved formatting
 
-Layout is otherwise re-derived, but blank-line counts survive: at most one
-consecutive blank line inside a form, at most two between top-level forms.
+Layout is otherwise re-derived. Two facts survive, and neither is a set of bytes
+carried across — each is re-derived against the code as laid out, which is what
+lets it survive a reflow at all.
+
+**Blank-line counts.** At most one consecutive blank line inside a form, at most
+two between top-level forms.
+
+**Columns of trailing comments.** A trailing line comment is treated as aligned
+when the line immediately above or below it ends in a trailing line comment at
+the same column. Such a run is put back at one column in the output, one space
+past the widest code in the run — a column computed from the reflowed code, not
+the one the source used, since reflowing changes the width that column was
+chosen against. A run is left at single spaces if aligning it would push a line
+past the page width.
+
+What this means for an adopting project: a *table* of trailing comments
+survives, and a *lone* comment padded clear of its code does not. In one
+codebase we measured, 388 trailing comments carried two or more spaces, and 105
+of them shared a column with an adjacent line; the other 283 collapse to a
+single space. If most of your trailing comments are single annotations rather
+than columns, expect them to close up. Aligning anything other than trailing
+comments — values in a `define` run, arrows in a table of clauses — is a
+non-goal.
+
 Whether pitch honors any explicit "keep this broken" signal analogous to black's
 magic trailing comma is an open decision — see [`docs/DESIGN.md`](docs/DESIGN.md).
 
