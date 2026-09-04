@@ -88,10 +88,10 @@
 
 ## 6. Reformat pitch's own sources
 
-- [ ] 6.1 Run `make format` over `PITCH_FORMAT_SOURCES`; record which files move
+- [x] 6.1 Run `make format` over `PITCH_FORMAT_SOURCES`; record which files move
       and confirm each moved only at a trailing comment gap
-- [ ] 6.2 `make format-check` is a no-op afterwards
-- [ ] 6.3 Confirm every reformatted file is identical to its previous contents
+- [x] 6.2 `make format-check` is a no-op afterwards
+- [x] 6.3 Confirm every reformatted file is identical to its previous contents
       modulo whitespace
 
 ## 7. Documentation
