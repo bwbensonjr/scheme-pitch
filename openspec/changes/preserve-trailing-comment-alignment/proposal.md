@@ -38,10 +38,29 @@ Configuration cannot reach it and should not: comment placement is not a
 style-table entry, and the configuration contract explicitly excludes altering
 terminal indentation.
 
-**Impact, measured.** In Emit's 32 hand-authored sources, **372** code lines
-carry a column-padded trailing comment against **7** with a single space. The
-aligned column is the house convention by a factor of 53, not an artifact of
-editing, and 372 sites is a visible regression in review.
+**Impact, measured.** Emit's 32 hand-authored sources hold 5,396 line comments,
+of which 400 are trailing. **388** of those carry two or more spaces before the
+semicolon, against **9** with one space and 3 with none. Padding a trailing
+comment clear of the code is the house habit by a factor of 43, not an artifact
+of editing.
+
+Padding is not alignment, though, and the two have to be counted separately,
+because only one of them is a signal this change can preserve. Of those 388
+padded sites, **105** share a column with an adjacent line: 86 align at width
+88 and 19 are declined for width. The other **283** are lone comments pushed
+clear of a single definition, at a column no neighbour shares:
+
+```scheme
+(define (hex2 b)                  ; byte 0..255 -> two uppercase hex digits
+(define (fresh-syms n)   ; n globally-unique param names for an eta lambda
+```
+
+Those 283 collapse to a single space under this change, exactly as they do
+under 0.1.0, and that is right: a lone comment has no second row to form a
+table with, so there is no horizontal signal to preserve. What this change
+recovers is 105 sites, issue #14's own case among them. An earlier draft of
+this paragraph read the padded count as an aligned count; they are not the same
+measurement, and the difference is a factor of nearly four.
 
 ## What Changes
 
@@ -127,5 +146,5 @@ None. This adds the second entry to a list an existing capability already owns.
 - `docs/DESIGN.md` §2 and `README.md`'s preserved-formatting section — the list
   grows from one entry to two, and the README is where an adopting project reads
   it.
-- Emit — unblocks the `pitch-source-formatting` one-time reformat for the 372
-  sites the issue counted.
+- Emit — unblocks the `pitch-source-formatting` one-time reformat. 105 of the
+  388 padded sites re-align; the other 283 keep the single space they get today.

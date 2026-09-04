@@ -58,27 +58,27 @@
 
 ## 4. Verification
 
-- [ ] 4.1 The tests from sections 1 to 3 pass
-- [ ] 4.2 `make test` passes in full
-- [ ] 4.3 `make oracle-layout` reports every entry agreeing — the engine, the
+- [x] 4.1 The tests from sections 1 to 3 pass
+- [x] 4.2 `make test` passes in full
+- [x] 4.3 `make oracle-layout` reports every entry agreeing — the engine, the
       algebra and the cost factory are untouched
-- [ ] 4.4 Both safety layers pass over a corpus with aligned comments, and a
+- [x] 4.4 Both safety layers pass over a corpus with aligned comments, and a
       deliberately corrupted alignment pass is confirmed to be *caught* by layer
       1 rather than passing silently — the pass must be inside the checked region
       and this is how that is demonstrated
-- [ ] 4.5 Format a file with no trailing comments using pitch built from this
+- [x] 4.5 Format a file with no trailing comments using pitch built from this
       tree and from the previous commit: byte identical
 - [ ] 4.6 Measure the added cost of the extra tokenization on the largest file in
       the corpus and record it against the baseline in issue #15, so it is a
       known number rather than an assumed-small one
-- [ ] 4.7 `make vendor-verify` is clean; `vendor/` and `src/pitch/reader.sld` are
+- [x] 4.7 `make vendor-verify` is clean; `vendor/` and `src/pitch/reader.sld` are
       untouched
 
 ## 5. Acceptance against the reported case
 
 - [ ] 5.1 Reformat issue #14's repro and confirm the three comments land at one
       column derived from the reflowed code
-- [ ] 5.2 Reformat Emit's corpus and count how many of the 372 reported sites are
+- [ ] 5.2 Reformat Emit's corpus and count how many of the 388 padded sites are
       aligned, how many are declined for width, and how many are recognized as
       unaligned. Report all three numbers; the third is the one that says whether
       the recognition rule matched the house convention
